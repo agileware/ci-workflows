@@ -6,6 +6,7 @@ on:
       EXTENSION_NAME:
         description: 'Name of the CiviCRM extension'
         required: false
+        default: ${{ github.event.repository.name }}
         type: string
     secrets:
       DOCKERHUB_USER:
@@ -64,7 +65,6 @@ jobs:
 
       - name: Start WordPress container
         run: |
-          REPO_NAME=$(basename ${{ github.repository }})
           docker run -d --name wordpress \
             --network ${{ steps.detect-network.outputs.network }} \
             -e WORDPRESS_DB_HOST=${{ env.DB_HOST }} \
@@ -72,7 +72,7 @@ jobs:
             -e WORDPRESS_DB_USER=${{ env.DB_USER }} \
             -e WORDPRESS_DB_PASSWORD=${{ env.DB_PASS }} \
             -p 8080:80 \
-            -v .:/var/www/html/wp-content/uploads/civicrm/ext/${{ inputs.EXTENSION_NAME || REPO_NAME }} \
+            -v .:/var/www/html/wp-content/uploads/civicrm/ext/${{ inputs.EXTENSION_NAME }} \
             docker.io/agilewareprojects/wordpress:pipeline-latest
 
       - name: Wait for WordPress container startup
@@ -118,7 +118,7 @@ jobs:
 
       - name: Regenerate module
         run: |
-          docker exec -w /var/www/html/wp-content/uploads/civicrm/ext/${{ env.EXTENSION_NAME }} wordpress civix upgrade
+          docker exec -w /var/www/html/wp-content/uploads/civicrm/ext/${{ inputs.EXTENSION_NAME }} wordpress civix upgrade
 
       - name: Commit and push changes
         uses: devops-infra/action-commit-push@master
