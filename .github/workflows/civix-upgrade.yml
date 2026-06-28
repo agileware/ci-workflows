@@ -121,7 +121,7 @@ jobs:
           docker exec -w /var/www/html/wp-content/uploads/civicrm/ext/${{ inputs.EXTENSION_NAME }} wordpress civix upgrade
 
       - name: Commit and push changes
-        uses: devops-infra/action-commit-push@master
+        uses: devops-infra/action-commit-push@v0.10.0
         id: push-commit
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -132,18 +132,18 @@ jobs:
           target_branch: civix-upgrade
 
       - name: Create pull request
-        uses: devops-infra/action-pull-request@master
+        uses: devops-infra/action-pull-request@v0.5.5
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           body: "**Automated pull request** - civix regenerated"
           title: "Automated pull request - civix regenerated"
-          assignee: "agileware-fj"
+          assignee: "agileware-justin"
           label: "auto"
           source_branch: ${{ steps.push-commit.outputs.branch_name  }}
 
       - name: Collect docker logs on failure
         if: failure()
-        uses: jwalton/gh-docker-logs@v2
+        uses: jwalton/gh-docker-logs@v2.2.2
         with:
           dest: './logs'
 
@@ -153,7 +153,7 @@ jobs:
 
       - name: Upload logs to GitHub
         if: failure()
-        uses: actions/upload-artifact@master
+        uses: actions/upload-artifact@v4
         with:
           name: logs.tgz
           path: ./logs.tgz
