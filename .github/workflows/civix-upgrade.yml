@@ -126,7 +126,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           add_timestamp: true
-          commit_prefix: "CIVIBLD-287 [AUTO] "
+          commit_prefix: "TASK-2296 [AUTO] "
           commit_message: "civix upgraded"
           force: false
           target_branch: civix-upgrade
