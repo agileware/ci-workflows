@@ -120,6 +120,9 @@ jobs:
         run: |
           docker exec -w /var/www/html/wp-content/uploads/civicrm/ext/${{ inputs.EXTENSION_NAME }} wordpress civix upgrade
 
+      - name: Fetch existing civix-upgrade branch (if any)
+        run: git fetch origin civix-upgrade || true
+
       - name: Commit and push changes
         uses: devops-infra/action-commit-push@v0.10.0
         id: push-commit
