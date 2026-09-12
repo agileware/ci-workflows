@@ -131,6 +131,15 @@ jobs:
           force: true
           target_branch: civix-upgrade
 
+      - name: Detect default branch
+        id: default-branch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH=$(gh api "repos/${{ github.repository }}" --jq .default_branch)
+          echo "Detected default branch: $BRANCH"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
       - name: Create pull request
         uses: devops-infra/action-pull-request@v0.5.5
         with:
@@ -140,6 +149,7 @@ jobs:
           assignee: "agileware-justin"
           label: "auto"
           source_branch: ${{ steps.push-commit.outputs.branch_name  }}
+          target_branch: ${{ steps.default-branch.outputs.branch }}
 
       - name: Collect docker logs on failure
         if: failure()
