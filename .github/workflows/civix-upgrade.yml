@@ -125,7 +125,7 @@ jobs:
         id: push-commit
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          add_timestamp: true
+          add_timestamp: false
           commit_prefix: "TASK-2296 [AUTO] "
           commit_message: "civix upgraded"
           force: false
