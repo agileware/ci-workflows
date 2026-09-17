@@ -128,6 +128,16 @@ jobs:
             --admin_email=${{ env.WP_ADMIN_EMAIL }} \
             --skip-email
 
+      - name: Configure WordPress permalinks
+        run: |
+          # CiviCRM's clean URLs (e.g. /civicrm/dashboard) depend on WordPress
+          # NOT using the default "Plain" permalink structure - with Plain
+          # permalinks, CiviCRM falls back to page_id/query-string URLs
+          # instead, which frontend tests written against the documented
+          # /civicrm/... paths won't resolve.
+          docker exec -u www-data wordpress wp rewrite structure '/%postname%/' --hard
+          docker exec -u www-data wordpress wp rewrite flush --hard
+
       - name: Download & install cv and civix
         run: |
           curl -Ls https://download.civicrm.org/cv/cv.phar -o /tmp/cv
