@@ -128,6 +128,14 @@ jobs:
             --admin_email=${{ env.WP_ADMIN_EMAIL }} \
             --skip-email
 
+      - name: Increase PHP memory limit
+        run: |
+          # The image's default 128M is enough for plain WordPress, but not
+          # for civicrm's own install/upgrade routines (cv core:install has
+          # hit "Allowed memory size of 134217728 bytes exhausted" fatals).
+          docker exec wordpress bash -c "echo 'memory_limit = 512M' > /usr/local/etc/php/conf.d/zz-memory-limit.ini"
+          docker exec wordpress apache2ctl graceful 2>/dev/null || true
+
       - name: Install and activate the Astra theme
         run: |
           # Pin a specific, known theme rather than relying on whichever
