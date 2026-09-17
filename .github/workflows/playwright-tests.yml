@@ -128,6 +128,14 @@ jobs:
             --admin_email=${{ env.WP_ADMIN_EMAIL }} \
             --skip-email
 
+      - name: Install and activate the Astra theme
+        run: |
+          # Pin a specific, known theme rather than relying on whichever
+          # theme WordPress core ships as its current default - a future
+          # WordPress release changing that default would otherwise change
+          # the rendered markup out from under these tests with no warning.
+          docker exec -u www-data wordpress wp theme install astra --activate
+
       - name: Configure WordPress permalinks
         run: |
           # CiviCRM's clean URLs (e.g. /civicrm/dashboard) depend on WordPress
