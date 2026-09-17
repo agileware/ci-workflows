@@ -128,6 +128,16 @@ jobs:
             --admin_email=${{ env.WP_ADMIN_EMAIL }} \
             --skip-email
 
+      - name: Configure WordPress permalinks
+        run: |
+          # CiviCRM's clean URLs (e.g. /civicrm/dashboard) depend on WordPress
+          # NOT using the default "Plain" permalink structure - with Plain
+          # permalinks, CiviCRM falls back to page_id/query-string URLs
+          # instead, which frontend tests written against the documented
+          # /civicrm/... paths won't resolve.
+          docker exec -u www-data wordpress wp rewrite structure '/%postname%/' --hard
+          docker exec -u www-data wordpress wp rewrite flush --hard
+
       - name: Download & install cv and civix
         run: |
           curl -Ls https://download.civicrm.org/cv/cv.phar -o /tmp/cv
@@ -141,6 +151,20 @@ jobs:
           docker exec wordpress chown www-data wp-content/ wp-content/uploads wp-content/uploads/civicrm
           docker exec -u www-data wordpress cv core:install
           docker exec -u www-data wordpress wp plugin activate civicrm
+
+      - name: Create CiviCRM WordPress base page
+        run: |
+          # CiviCRM's WordPress integration renders itself through a
+          # dedicated WordPress page (identified by the "wpBasePage"
+          # setting, matched by slug) rather than needing a shortcode in the
+          # page body - without this, CiviCRM has no base page to route
+          # clean URLs through.
+          docker exec -u www-data wordpress wp post create \
+            --post_type=page \
+            --post_title=CiviCRM \
+            --post_name=civicrm \
+            --post_status=publish
+          docker exec -u www-data wordpress cv api4 Setting.set '{"values": {"wpBasePage": "civicrm"}}'
 
       - name: Enable extension under test
         run: |
