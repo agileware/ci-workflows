@@ -150,9 +150,11 @@ jobs:
           # NOT using the default "Plain" permalink structure - with Plain
           # permalinks, CiviCRM falls back to page_id/query-string URLs
           # instead, which frontend tests written against the documented
-          # /civicrm/... paths won't resolve.
+          # /civicrm/... paths won't resolve. The actual rewrite *flush*
+          # happens later, once civicrm is installed and active - it's the
+          # one that persists civicrm's own `civicrm/(.*)` rewrite rule,
+          # which civicrm only registers while its plugin is active.
           docker exec -u www-data wordpress wp rewrite structure '/%postname%/' --hard
-          docker exec -u www-data wordpress wp rewrite flush --hard
 
       - name: Download & install cv and civix
         run: |
@@ -181,6 +183,14 @@ jobs:
             --post_name=civicrm \
             --post_status=publish
           docker exec -u www-data wordpress cv api4 Setting.set '{"values": {"wpBasePage": "civicrm"}}'
+
+      - name: Flush WordPress rewrite rules
+        run: |
+          # Only now - with civicrm active and its base page/setting in
+          # place - does civicrm's own rewrite rule (registered while its
+          # plugin is active) get included when the rules are persisted.
+          # Flushing any earlier would miss it entirely.
+          docker exec -u www-data wordpress wp rewrite flush --hard
 
       - name: Enable extension under test
         run: |
