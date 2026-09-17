@@ -152,6 +152,20 @@ jobs:
           docker exec -u www-data wordpress cv core:install
           docker exec -u www-data wordpress wp plugin activate civicrm
 
+      - name: Create CiviCRM WordPress base page
+        run: |
+          # CiviCRM's WordPress integration renders itself through a
+          # dedicated WordPress page (identified by the "wpBasePage"
+          # setting, matched by slug) rather than needing a shortcode in the
+          # page body - without this, CiviCRM has no base page to route
+          # clean URLs through.
+          docker exec -u www-data wordpress wp post create \
+            --post_type=page \
+            --post_title=CiviCRM \
+            --post_name=civicrm \
+            --post_status=publish
+          docker exec -u www-data wordpress cv api4 Setting.set '{"values": {"wpBasePage": "civicrm"}}'
+
       - name: Enable extension under test
         run: |
           docker exec -u www-data wordpress cv ext:enable ${{ env.EXTENSION_KEY }}
