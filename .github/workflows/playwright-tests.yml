@@ -215,6 +215,17 @@ jobs:
           path: ${{ inputs.PLAYWRIGHT_DIR }}/playwright-report/
           retention-days: 14
 
+      - name: Upload Playwright screenshots/traces
+        # Same failure screenshots/traces as the HTML report above, but as
+        # plain files under a per-test directory name - faster to browse
+        # individually than digging through the report's hashed filenames.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-test-results
+          path: ${{ inputs.PLAYWRIGHT_DIR }}/test-results/
+          retention-days: 14
+
       - name: Collect docker logs on failure
         if: failure()
         uses: jwalton/gh-docker-logs@v2.2.2
