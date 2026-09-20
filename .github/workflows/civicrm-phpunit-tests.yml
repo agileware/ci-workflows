@@ -149,14 +149,17 @@ jobs:
           # and re-`cd`s to $PWD itself (to work around phpunit/codeception
           # changing the process's cwd), so PWD must be set explicitly here -
           # docker exec does not populate it from -w on its own.
+          # --log-junit writes to /tmp inside the container, not the extension
+          # dir: that's a bind mount owned by the runner's user, and www-data
+          # can't write into it.
           docker exec -u www-data \
             -w ${{ env.EXTENSION_DIR }} \
             -e PWD=${{ env.EXTENSION_DIR }} \
-            wordpress phpunit9 --log-junit phpunit-results.xml ${{ inputs.PHPUNIT_ARGS }}
+            wordpress phpunit9 --log-junit /tmp/phpunit-results.xml ${{ inputs.PHPUNIT_ARGS }}
 
       - name: Copy PHPUnit results out of container
         if: always()
-        run: docker cp wordpress:${{ env.EXTENSION_DIR }}/phpunit-results.xml ./phpunit-results.xml || true
+        run: docker cp wordpress:/tmp/phpunit-results.xml ./phpunit-results.xml || true
 
       - name: Upload PHPUnit results
         if: always()
