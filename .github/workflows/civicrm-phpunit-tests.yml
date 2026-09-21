@@ -135,13 +135,21 @@ jobs:
           # Civi\Test (used by HeadlessInterface tests, which reinstall/wipe
           # schema per test class) must run against a dedicated database,
           # never the main site DB. civicrm-buildkit sets this up
-          # automatically; without it, we create the DB and register it
-          # ourselves below.
+          # automatically; without it, we create it ourselves below.
+          #
+          # The test DB has to already contain a full, working CiviCRM
+          # install: PHPUnit's CiviTestListener boots CIVICRM_UF=UnitTests
+          # via `cv php:boot --level=full` *before* any test (or Civi\Test's
+          # own schema builder) runs, and that boot itself queries
+          # civicrm_setting etc. Cloning the just-installed main DB is the
+          # simplest way to get a schema-compatible starting point.
           mysql -h 127.0.0.1 -uroot -p"${{ env.DB_ROOT_PASS }}" -e "
             CREATE DATABASE IF NOT EXISTS civicrm_test;
             GRANT ALL PRIVILEGES ON civicrm_test.* TO '${{ env.DB_USER }}'@'%';
             FLUSH PRIVILEGES;
           "
+          mysqldump -h 127.0.0.1 -uroot -p"${{ env.DB_ROOT_PASS }}" ${{ env.DB_NAME }} \
+            | mysql -h 127.0.0.1 -uroot -p"${{ env.DB_ROOT_PASS }}" civicrm_test
 
       - name: Configure cv's headless test database DSN
         run: |
