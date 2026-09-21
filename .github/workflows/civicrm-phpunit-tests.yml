@@ -151,11 +151,12 @@ jobs:
           # own schema builder) runs, and that boot itself queries
           # civicrm_setting etc. Cloning the just-installed main DB is the
           # simplest way to get a schema-compatible starting point.
-          mysql -h 127.0.0.1 -uroot -p"${{ env.DB_ROOT_PASS }}" -e "
-            CREATE DATABASE IF NOT EXISTS civicrm_test;
-            GRANT ALL PRIVILEGES ON civicrm_test.* TO '${{ env.DB_USER }}'@'%';
-            FLUSH PRIVILEGES;
-          "
+          #
+          # Connect as root, not DB_USER: Civi\Test's own schema install
+          # (re)creates functions/triggers, which needs the SUPER privilege
+          # that DB_USER doesn't have. This DB only exists for this
+          # ephemeral CI run, so there's no reason to scope it down further.
+          mysql -h 127.0.0.1 -uroot -p"${{ env.DB_ROOT_PASS }}" -e "CREATE DATABASE IF NOT EXISTS civicrm_test;"
           mysqldump -h 127.0.0.1 -uroot -p"${{ env.DB_ROOT_PASS }}" ${{ env.DB_NAME }} \
             | mysql -h 127.0.0.1 -uroot -p"${{ env.DB_ROOT_PASS }}" civicrm_test
 
@@ -166,7 +167,7 @@ jobs:
           # throws if it's unset - this is what Civi\Test::headless() boots
           # under. See templates/CRM/common/civicrm.settings.php.template in
           # civicrm-core.
-          docker exec -u www-data wordpress cv ev '\Civi\Cv\Config::update(function ($config) { $config["sites"][CIVICRM_SETTINGS_PATH]["TEST_DB_DSN"] = "mysql://${{ env.DB_USER }}:${{ env.DB_PASS }}@mariadb:3306/civicrm_test?new_link=true"; return $config; });'
+          docker exec -u www-data wordpress cv ev '\Civi\Cv\Config::update(function ($config) { $config["sites"][CIVICRM_SETTINGS_PATH]["TEST_DB_DSN"] = "mysql://root:${{ env.DB_ROOT_PASS }}@mariadb:3306/civicrm_test?new_link=true"; return $config; });'
 
       - name: Ensure PHPUnit 9 is available
         run: |
