@@ -130,6 +130,12 @@ jobs:
           docker exec -u www-data wordpress cv core:install
           docker exec -u www-data wordpress wp plugin activate civicrm
 
+      - name: DEBUG PHP extensions
+        run: |
+          docker exec wordpress php -v
+          docker exec wordpress php -m
+          docker exec wordpress php -i | grep -i -A5 "pdo_mysql"
+
       - name: Create CiviCRM headless test database
         run: |
           # Civi\Test (used by HeadlessInterface tests, which reinstall/wipe
