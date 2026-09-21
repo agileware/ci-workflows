@@ -1,0 +1,226 @@
+name: CiviCRM PHPUnit testing
+
+on:
+  workflow_call:
+    inputs:
+      EXTENSION_NAME:
+        description: 'Name of the CiviCRM extension (also the folder it is mounted under)'
+        required: false
+        default: ${{ github.event.repository.name }}
+        type: string
+      PHPUNIT_ARGS:
+        description: >
+          Extra arguments passed to phpunit9, e.g. a specific test file
+          (tests/phpunit/CRM/Foo/BarTest.php). Defaults to running the full
+          suite defined in the extension's phpunit.xml.dist.
+        required: false
+        default: ''
+        type: string
+    secrets:
+      DOCKERHUB_USER:
+        required: true
+      DOCKERHUB_TOKEN:
+        required: true
+
+jobs:
+  phpunit:
+    runs-on: ubuntu-latest
+
+    env:
+      DB_NAME: wordpress
+      DB_USER: wp_user
+      DB_PASS: wp_pass
+      DB_ROOT_PASS: root_pass
+      DB_HOST: mariadb:3306
+      WP_URL: http://localhost:8080
+      WP_TITLE: Test Site
+      WP_ADMIN_USER: admin
+      WP_ADMIN_PASS: admin
+      WP_ADMIN_EMAIL: test@example.com
+      EXTENSION_DIR: /var/www/html/wp-content/uploads/civicrm/ext/${{ inputs.EXTENSION_NAME }}
+
+    services:
+      mariadb:
+        image: mariadb:10
+        env:
+          MYSQL_DATABASE: ${{ env.DB_NAME }}
+          MYSQL_USER: ${{ env.DB_USER }}
+          MYSQL_PASSWORD: ${{ env.DB_PASS }}
+          MYSQL_ROOT_PASSWORD: ${{ env.DB_ROOT_PASS }}
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --silent"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Detect GitHub Actions Docker network
+        id: detect-network
+        run: |
+          NETWORK=$(docker network ls --filter "name=github_" --format "{{ .Name }}" | head -n 1)
+          echo "Detected Docker network: $NETWORK"
+          echo "network=$NETWORK" >> "$GITHUB_OUTPUT"
+
+      - name: Start WordPress container
+        run: |
+          docker run -d --name wordpress \
+            --network ${{ steps.detect-network.outputs.network }} \
+            -e WORDPRESS_DB_HOST=${{ env.DB_HOST }} \
+            -e WORDPRESS_DB_NAME=${{ env.DB_NAME }} \
+            -e WORDPRESS_DB_USER=${{ env.DB_USER }} \
+            -e WORDPRESS_DB_PASSWORD=${{ env.DB_PASS }} \
+            -p 8080:80 \
+            -v .:/var/www/html/wp-content/uploads/civicrm/ext/${{ inputs.EXTENSION_NAME }} \
+            docker.io/agilewareprojects/wordpress:pipeline-latest
+
+      - name: Wait for WordPress container startup
+        run: |
+          echo "Waiting for wp-config.php to exist in the container..."
+          for i in {1..30}; do
+            if docker exec wordpress test -f /var/www/html/wp-config.php; then
+              echo "wp-config.php found!"
+              break
+            fi
+            echo "Still waiting... ($i)"
+            sleep 2
+          done
+
+          if ! docker exec wordpress test -f /var/www/html/wp-config.php; then
+            echo "Timed out waiting for wp-config.php"
+            exit 1
+          fi
+
+      - name: Install WordPress
+        run: |
+          docker exec -u www-data wordpress wp core install \
+            --url=${{ env.WP_URL }} \
+            --title="${{ env.WP_TITLE }}" \
+            --admin_user=${{ env.WP_ADMIN_USER }} \
+            --admin_password=${{ env.WP_ADMIN_PASS }} \
+            --admin_email=${{ env.WP_ADMIN_EMAIL }} \
+            --skip-email
+
+      - name: Increase PHP memory limit
+        run: |
+          # The image's default 128M is enough for plain WordPress, but not
+          # for civicrm's own install routines or a large phpunit run.
+          docker exec wordpress bash -c "echo 'memory_limit = 512M' > /usr/local/etc/php/conf.d/zz-memory-limit.ini"
+          docker exec wordpress apache2ctl graceful 2>/dev/null || true
+
+      - name: Download & install cv
+        run: |
+          curl -Ls https://download.civicrm.org/cv/cv.phar -o /tmp/cv
+          docker cp /tmp/cv wordpress:/usr/local/bin/cv
+          docker exec wordpress chmod +x /usr/local/bin/cv
+
+      - name: Install civicrm
+        run: |
+          docker exec wordpress chown www-data wp-content/ wp-content/uploads wp-content/uploads/civicrm
+          docker exec -u www-data wordpress cv core:install
+          docker exec -u www-data wordpress wp plugin activate civicrm
+
+      - name: Install pdo_mysql PHP extension
+        run: |
+          # The base image ships mysqli/mysqlnd but not pdo_mysql. Civi\Test
+          # (the headless test framework) uses PDO directly to load the
+          # schema, so it's needed for HeadlessInterface tests specifically.
+          docker exec wordpress docker-php-ext-install pdo_mysql
+          docker exec wordpress apache2ctl graceful 2>/dev/null || true
+
+      - name: Create CiviCRM headless test database
+        run: |
+          # Civi\Test (used by HeadlessInterface tests, which reinstall/wipe
+          # schema per test class) must run against a dedicated database,
+          # never the main site DB. civicrm-buildkit sets this up
+          # automatically; without it, we create it ourselves below.
+          #
+          # The test DB has to already contain a full, working CiviCRM
+          # install: PHPUnit's CiviTestListener boots CIVICRM_UF=UnitTests
+          # via `cv php:boot --level=full` *before* any test (or Civi\Test's
+          # own schema builder) runs, and that boot itself queries
+          # civicrm_setting etc. Cloning the just-installed main DB is the
+          # simplest way to get a schema-compatible starting point.
+          #
+          # Connect as root, not DB_USER: Civi\Test's own schema install
+          # (re)creates functions/triggers, which needs the SUPER privilege
+          # that DB_USER doesn't have. This DB only exists for this
+          # ephemeral CI run, so there's no reason to scope it down further.
+          mysql -h 127.0.0.1 -uroot -p"${{ env.DB_ROOT_PASS }}" -e "CREATE DATABASE IF NOT EXISTS civicrm_test;"
+          mysqldump -h 127.0.0.1 -uroot -p"${{ env.DB_ROOT_PASS }}" ${{ env.DB_NAME }} \
+            | mysql -h 127.0.0.1 -uroot -p"${{ env.DB_ROOT_PASS }}" civicrm_test
+
+      - name: Configure cv's headless test database DSN
+        run: |
+          # civicrm.settings.php reads $GLOBALS['_CV']['TEST_DB_DSN'] (via
+          # cv's per-site config, ~/.cv.json) when CIVICRM_UF=UnitTests, and
+          # throws if it's unset - this is what Civi\Test::headless() boots
+          # under. See templates/CRM/common/civicrm.settings.php.template in
+          # civicrm-core.
+          docker exec -u www-data wordpress cv ev '\Civi\Cv\Config::update(function ($config) { $config["sites"][CIVICRM_SETTINGS_PATH]["TEST_DB_DSN"] = "mysql://root:${{ env.DB_ROOT_PASS }}@mariadb:3306/civicrm_test?new_link=true"; return $config; });'
+
+      - name: Ensure PHPUnit 9 is available
+        run: |
+          # The base image isn't guaranteed to ship a `phpunit9` binary, so
+          # install the official phar (same pattern as cv/civix above) unless
+          # one is already on the PATH.
+          if docker exec wordpress bash -c 'command -v phpunit9 >/dev/null 2>&1'; then
+            echo "phpunit9 already available in the image"
+          else
+            curl -Ls https://phar.phpunit.de/phpunit-9.phar -o /tmp/phpunit9
+            docker cp /tmp/phpunit9 wordpress:/usr/local/bin/phpunit9
+            docker exec wordpress chmod +x /usr/local/bin/phpunit9
+          fi
+
+      - name: Run PHPUnit tests
+        run: |
+          # The extension's tests/phpunit/bootstrap.php shells out to `cv`
+          # and re-`cd`s to $PWD itself (to work around phpunit/codeception
+          # changing the process's cwd), so PWD must be set explicitly here -
+          # docker exec does not populate it from -w on its own.
+          # --log-junit writes to /tmp inside the container, not the extension
+          # dir: that's a bind mount owned by the runner's user, and www-data
+          # can't write into it.
+          docker exec -u www-data \
+            -w ${{ env.EXTENSION_DIR }} \
+            -e PWD=${{ env.EXTENSION_DIR }} \
+            wordpress phpunit9 --log-junit /tmp/phpunit-results.xml ${{ inputs.PHPUNIT_ARGS }}
+
+      - name: Copy PHPUnit results out of container
+        if: always()
+        run: docker cp wordpress:/tmp/phpunit-results.xml ./phpunit-results.xml || true
+
+      - name: Upload PHPUnit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phpunit-results
+          path: phpunit-results.xml
+          retention-days: 14
+
+      - name: Collect docker logs on failure
+        if: failure()
+        uses: jwalton/gh-docker-logs@v2.2.2
+        with:
+          dest: './logs'
+
+      - name: Tar logs
+        if: failure()
+        run: tar cvzf ./logs.tgz ./logs
+
+      - name: Upload logs to GitHub
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs.tgz
+          path: ./logs.tgz
