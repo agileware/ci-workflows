@@ -130,11 +130,13 @@ jobs:
           docker exec -u www-data wordpress cv core:install
           docker exec -u www-data wordpress wp plugin activate civicrm
 
-      - name: DEBUG PHP extensions
+      - name: Install pdo_mysql PHP extension
         run: |
-          docker exec wordpress php -v
-          docker exec wordpress php -m
-          docker exec wordpress php -i | grep -i -A5 "pdo_mysql"
+          # The base image ships mysqli/mysqlnd but not pdo_mysql. Civi\Test
+          # (the headless test framework) uses PDO directly to load the
+          # schema, so it's needed for HeadlessInterface tests specifically.
+          docker exec wordpress docker-php-ext-install pdo_mysql
+          docker exec wordpress apache2ctl graceful 2>/dev/null || true
 
       - name: Create CiviCRM headless test database
         run: |
