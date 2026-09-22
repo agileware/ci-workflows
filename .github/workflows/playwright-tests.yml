@@ -4,12 +4,21 @@ on:
   workflow_call:
     inputs:
       EXTENSION_NAME:
-        description: 'Name of the CiviCRM extension (also the folder it is mounted under)'
+        description: 'Name of the component under test (also the folder it is mounted under)'
         required: false
         default: ${{ github.event.repository.name }}
         type: string
+      COMPONENT_TYPE:
+        description: >
+          What kind of component this repo is, which decides where it is mounted and how it
+          is installed: 'extension' mounts under the CiviCRM extensions directory and enables
+          it with `cv ext:enable`; 'plugin' mounts under wp-content/plugins and activates it
+          with `wp plugin activate`. Defaults to 'extension' so existing callers are unaffected.
+        required: false
+        default: 'extension'
+        type: string
       EXTENSION_KEY:
-        description: 'CiviCRM extension key used to enable it (defaults to EXTENSION_NAME)'
+        description: 'CiviCRM extension key used to enable it (defaults to EXTENSION_NAME). Ignored when COMPONENT_TYPE is plugin.'
         required: false
         default: ''
         type: string
@@ -21,9 +30,9 @@ on:
       SETUP_SCRIPT:
         description: >
           Optional path (relative to the repo root) to a repo-specific shell script that runs
-          after WordPress/CiviCRM/the extension are up, before the Playwright tests. Use it to
+          after WordPress/CiviCRM/the component are up, before the Playwright tests. Use it to
           create test users/roles and seed data. Runs as www-data with its working directory set
-          to the extension folder inside the WordPress container, so it can call `wp` and `cv`
+          to the component's folder inside the WordPress container, so it can call `wp` and `cv`
           directly.
         required: false
         default: ''
@@ -55,6 +64,13 @@ jobs:
       WP_ADMIN_PASS: admin
       WP_ADMIN_EMAIL: test@example.com
       EXTENSION_KEY: ${{ inputs.EXTENSION_KEY != '' && inputs.EXTENSION_KEY || inputs.EXTENSION_NAME }}
+      # Where the repo is mounted inside the WordPress container. A WordPress plugin has to
+      # live under wp-content/plugins for WordPress to load it at all; a CiviCRM extension
+      # lives under the CiviCRM extensions directory. Derived once here so the volume mount,
+      # the setup script's working directory and CIVI_EXEC_PREFIX can never disagree.
+      COMPONENT_DIR: ${{ inputs.COMPONENT_TYPE == 'plugin'
+        && format('/var/www/html/wp-content/plugins/{0}', inputs.EXTENSION_NAME)
+        || format('/var/www/html/wp-content/uploads/civicrm/ext/{0}', inputs.EXTENSION_NAME) }}
 
     services:
       mariadb:
@@ -98,7 +114,7 @@ jobs:
             -e WORDPRESS_DB_USER=${{ env.DB_USER }} \
             -e WORDPRESS_DB_PASSWORD=${{ env.DB_PASS }} \
             -p 8080:80 \
-            -v .:/var/www/html/wp-content/uploads/civicrm/ext/${{ inputs.EXTENSION_NAME }} \
+            -v .:${{ env.COMPONENT_DIR }} \
             docker.io/agilewareprojects/wordpress:pipeline-latest
 
       - name: Wait for WordPress container startup
@@ -193,8 +209,16 @@ jobs:
           docker exec -u www-data wordpress wp rewrite flush --hard
 
       - name: Enable extension under test
+        if: ${{ inputs.COMPONENT_TYPE != 'plugin' }}
         run: |
           docker exec -u www-data wordpress cv ext:enable ${{ env.EXTENSION_KEY }}
+
+      - name: Activate plugin under test
+        if: ${{ inputs.COMPONENT_TYPE == 'plugin' }}
+        run: |
+          # A WordPress plugin is activated through wp-cli rather than cv - it has no
+          # info.xml, so CiviCRM would not recognise it as an extension at all.
+          docker exec -u www-data wordpress wp plugin activate ${{ inputs.EXTENSION_NAME }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -214,7 +238,7 @@ jobs:
       - name: Run repo-specific test environment setup
         if: ${{ inputs.SETUP_SCRIPT != '' }}
         run: |
-          docker exec -u www-data -w /var/www/html/wp-content/uploads/civicrm/ext/${{ inputs.EXTENSION_NAME }} wordpress bash "${{ inputs.SETUP_SCRIPT }}"
+          docker exec -u www-data -w ${{ env.COMPONENT_DIR }} wordpress bash "${{ inputs.SETUP_SCRIPT }}"
 
       - name: Run Playwright tests
         working-directory: ${{ inputs.PLAYWRIGHT_DIR }}
@@ -222,7 +246,7 @@ jobs:
           BASE_URL: ${{ env.WP_URL }}
           WP_ADMIN_USER: ${{ env.WP_ADMIN_USER }}
           WP_ADMIN_PASS: ${{ env.WP_ADMIN_PASS }}
-          CIVI_EXEC_PREFIX: docker exec -u www-data -w /var/www/html/wp-content/uploads/civicrm/ext/${{ inputs.EXTENSION_NAME }} wordpress
+          CIVI_EXEC_PREFIX: docker exec -u www-data -w ${{ env.COMPONENT_DIR }} wordpress
         run: npx playwright test
 
       - name: Upload Playwright report

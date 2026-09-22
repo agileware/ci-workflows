@@ -129,20 +129,33 @@ jobs:
     # Optional
     # with:
     #   EXTENSION_NAME: my_custom_extension
+    #   COMPONENT_TYPE: extension
     #   EXTENSION_KEY: my_custom_extension
     #   PLAYWRIGHT_DIR: tests/playwright
     #   SETUP_SCRIPT: tests/playwright/setup.sh
     #   NODE_VERSION: '20'
 ```
 
-The extension must provide a `package.json` and `playwright.config.ts` (by default under `tests/playwright`), with tests written to run against a live WordPress + CiviCRM site.
+The component must provide a `package.json` and `playwright.config.ts` (by default under `tests/playwright`), with tests written to run against a live WordPress + CiviCRM site.
+
+#### Testing a WordPress plugin
+
+The same workflow tests a WordPress plugin by setting `COMPONENT_TYPE: plugin`. The repo is then mounted under `wp-content/plugins` and activated with `wp plugin activate` instead of `cv ext:enable`:
+
+```yaml
+    with:
+      EXTENSION_NAME: wp-civicrm-ux
+      COMPONENT_TYPE: plugin
+      SETUP_SCRIPT: tests/playwright/fixtures/setup-environment.sh
+```
 
 ### ⚙️ Inputs
 
-- `EXTENSION_NAME` — name of the CiviCRM extension, and the folder it's mounted under. Defaults to the calling repository's name.
-- `EXTENSION_KEY` — CiviCRM extension key used to enable it via `cv ext:enable`. Defaults to `EXTENSION_NAME`.
+- `EXTENSION_NAME` — name of the component under test, and the folder it's mounted under. Defaults to the calling repository's name.
+- `COMPONENT_TYPE` — `extension` (default) or `plugin`. Decides where the repo is mounted and how it is installed: a CiviCRM extension goes under the CiviCRM extensions directory and is enabled with `cv ext:enable`; a WordPress plugin goes under `wp-content/plugins` and is activated with `wp plugin activate`. The default leaves existing callers unchanged.
+- `EXTENSION_KEY` — CiviCRM extension key used to enable it via `cv ext:enable`. Defaults to `EXTENSION_NAME`. Ignored when `COMPONENT_TYPE` is `plugin`.
 - `PLAYWRIGHT_DIR` — directory (relative to the repo root) containing `package.json` and `playwright.config.ts`. Defaults to `tests/playwright`.
-- `SETUP_SCRIPT` — optional path (relative to the repo root) to a repo-specific shell script that runs after WordPress/CiviCRM/the extension are up, before the Playwright tests. Use it to create test users/roles and seed data. Runs as `www-data` with its working directory set to the extension folder inside the WordPress container, so it can call `wp` and `cv` directly.
+- `SETUP_SCRIPT` — optional path (relative to the repo root) to a repo-specific shell script that runs after WordPress/CiviCRM/the component are up, before the Playwright tests. Use it to create test users/roles and seed data. Runs as `www-data` with its working directory set to the component's folder inside the WordPress container, so it can call `wp` and `cv` directly.
 - `NODE_VERSION` — Node.js version to run Playwright with. Defaults to `20`.
 
 ### 🔐 Required Secrets
