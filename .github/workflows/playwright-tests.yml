@@ -182,8 +182,17 @@ jobs:
 
       - name: Install civicrm
         run: |
+          # An extension repo gets wp-content/uploads/civicrm for free, because its bind mount
+          # (.../uploads/civicrm/ext/<name>) makes Docker create the whole parent chain. A
+          # plugin repo mounts elsewhere, so the directory only exists if the image ships it -
+          # created explicitly here so both component types start from the same state.
+          docker exec wordpress mkdir -p wp-content/uploads/civicrm
           docker exec wordpress chown www-data wp-content/ wp-content/uploads wp-content/uploads/civicrm
-          docker exec -u www-data wordpress cv core:install
+          # -f because core:install PROMPTS when a civicrm.settings.php already exists, and a
+          # prompt with no TTY takes its default - abort - and fails the run. The container is
+          # rebuilt from the image every run, so overwriting a stale settings file is exactly
+          # what we want; with no settings file present the flag changes nothing.
+          docker exec -u www-data wordpress cv core:install -f
           docker exec -u www-data wordpress wp plugin activate civicrm
 
       - name: Create CiviCRM WordPress base page
