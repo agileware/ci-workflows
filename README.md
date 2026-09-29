@@ -8,6 +8,7 @@ task against it; the release workflows operate on git/GitHub directly instead.
 - [CiviCRM PHPUnit Testing Workflow](#civicrm-phpunit-testing-workflow) — runs an extension's headless PHPUnit suite
 - [Playwright Frontend Testing Workflow](#playwright-frontend-testing-workflow) — runs an extension's Playwright test suite
 - [WordPress Plugin Cut Release Workflow](#wordpress-plugin-cut-release-workflow) — builds a filtered release branch, tags it, and publishes the GitHub Release
+- [CiviCRM Extension Cut Release Workflow](#civicrm-extension-cut-release-workflow) — same, versioned from info.xml instead of a plugin header
 
 ## civix Upgrade Workflow
 
@@ -252,3 +253,72 @@ both, and this job pushes commits/tags and creates a GitHub Release.
   the job still tags and publishes, it just skips creating an empty commit.
 - The GitHub Release is created with `--generate-notes`, so it's worth keeping merge commit
   messages/PR titles meaningful on the plugin's default branch.
+
+## CiviCRM Extension Cut Release Workflow
+
+The CiviCRM-extension counterpart to the workflow above. Same idea (a filtered `release` branch
+gets tagged instead of the extension's default branch), but versioned from `info.xml` rather
+than a plugin file header, since civicrm.org's extension directory reads the tag's tree
+directly (no GitHub-specific release-asset or `zipball_url` step to account for).
+
+### 📂 File Location
+
+```
+.github/workflows/civicrm-extension-cut-release.yml
+```
+
+### 🔧 Usage
+
+The `release` branch must already exist (branched once from the extension's default branch,
+with that repo's excluded paths removed in the first commit) before this workflow is ever run;
+it updates the branch, it does not create it.
+
+Add a workflow such as `.github/workflows/cut-release.yml`, triggered manually from the Actions
+tab:
+
+```yaml
+name: Cut release
+
+on:
+  workflow_dispatch:
+    inputs:
+      VERSION:
+        description: 'Version to release (must match <version> in info.xml)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  cut-release:
+    uses: agileware/ci-workflows/.github/workflows/civicrm-extension-cut-release.yml@main
+    with:
+      VERSION: ${{ inputs.VERSION }}
+      EXCLUDE_PATHS: ".github tests mkdocs.yml"
+      # Optional
+      # RELEASE_BRANCH: release
+      # EXTENSION_NAME: my_extension
+```
+
+### ⚙️ Inputs
+
+- `VERSION` — version to tag and release, matching the calling repo's existing tag naming (e.g. `2.0.2`).
+- `EXCLUDE_PATHS` — space-separated repo-relative paths to drop from the release branch. Specific to each extension's own dev-only paths.
+- `RELEASE_BRANCH` — branch that only ever holds filtered, release-ready content. Defaults to `release`. Must already exist.
+- `EXTENSION_NAME` — human-readable name, used only in log/commit wording. Defaults to the calling repository's name.
+
+### 🔐 Required Permissions
+
+Same as the WordPress workflow: the calling workflow must declare `permissions: contents: write`
+itself, in addition to the reusable workflow doing so.
+
+### 🧠 Notes
+
+- The version check reads `info.xml`'s `<version>` element, not a plugin file header. Bump
+  `<releaseDate>` alongside it, that's on the extension author, this workflow doesn't touch it.
+- civicrm.org's directory doesn't require a GitHub Release to exist, it reads the tag directly,
+  but one is still published here (`--generate-notes`) to match the existing convention on
+  these repos of every tag having a matching Release.
+- Otherwise identical to the WordPress workflow: same git-plumbing approach to building the
+  filtered tree, same "nothing to release" no-op handling.

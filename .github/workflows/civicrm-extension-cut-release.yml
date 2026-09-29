@@ -1,0 +1,107 @@
+name: civicrm extension cut release
+
+on:
+  workflow_call:
+    inputs:
+      VERSION:
+        description: 'Version to release, matching the calling repo''s tag naming (e.g. 2.0.2)'
+        required: true
+        type: string
+      EXCLUDE_PATHS:
+        description: 'Space-separated repo-relative paths to drop from the release branch (e.g. ".github tests mkdocs.yml")'
+        required: true
+        type: string
+      RELEASE_BRANCH:
+        description: 'Branch that only ever holds filtered, release-ready content. Must already exist.'
+        required: false
+        default: 'release'
+        type: string
+      EXTENSION_NAME:
+        description: 'Human-readable extension name, used only in commit/log messages'
+        required: false
+        default: ${{ github.event.repository.name }}
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  cut-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch release branch
+        run: |
+          # The release branch is created once, manually, when a repo first adopts this
+          # workflow (see ci-workflows README). This job only ever updates it, it never
+          # bootstraps it, so a missing branch here is a setup problem, not something to
+          # silently paper over.
+          if ! git fetch origin "${{ inputs.RELEASE_BRANCH }}:${{ inputs.RELEASE_BRANCH }}"; then
+            echo "::error::Branch '${{ inputs.RELEASE_BRANCH }}' does not exist on origin. Create it before running this workflow."
+            exit 1
+          fi
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Verify info.xml version matches VERSION input
+        run: |
+          # Every CiviCRM extension has info.xml at its root by convention, so unlike the
+          # WordPress workflow this never needs a per-repo file path input. The explicit
+          # `|| {` matters: under bash -e (GitHub Actions' default), a plain failed grep would
+          # abort the step right here with nothing but a bare "exit code 1", before the error
+          # below ever printed (this bit us for real on the WordPress version of this check).
+          INFO_VERSION=$(grep -m1 -oP '(?<=<version>)[^<]+' info.xml) || {
+            echo "::error::Could not find a <version> element in info.xml."
+            exit 1
+          }
+          if [ "$INFO_VERSION" != "${{ inputs.VERSION }}" ]; then
+            echo "::error::info.xml has <version>$INFO_VERSION</version>, but this run was dispatched with VERSION=${{ inputs.VERSION }}. Bump it (and <releaseDate>) and merge that first."
+            exit 1
+          fi
+
+      - name: Build filtered tree onto the release branch
+        run: |
+          SOURCE_SHA=$(git rev-parse HEAD)
+          git checkout "${{ inputs.RELEASE_BRANCH }}"
+
+          # Mirror the source commit's tree onto the release branch with plain git
+          # plumbing: clear everything currently tracked here, then restore the full
+          # source tree on top of it, then drop this repo's excluded paths.
+          git rm -rq --ignore-unmatch -- .
+          git checkout "$SOURCE_SHA" -- .
+
+          for path in ${{ inputs.EXCLUDE_PATHS }}; do
+            rm -rf -- "$path"
+          done
+
+          git add -A
+
+      - name: Commit, tag, and push
+        run: |
+          if git diff --cached --quiet; then
+            echo "No changes to release, ${{ inputs.RELEASE_BRANCH }} already matches this version's filtered tree."
+          else
+            git commit -m "Release ${{ inputs.VERSION }}"
+          fi
+          git tag "${{ inputs.VERSION }}"
+          git push origin "${{ inputs.RELEASE_BRANCH }}" "${{ inputs.VERSION }}"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # civicrm.org's extension directory reads the tag's tree directly (via info.xml),
+          # it doesn't need a GitHub Release to exist. This is created anyway because every
+          # existing tag on these repos already has one, for changelog visibility.
+          gh release create "${{ inputs.VERSION }}" \
+            --target "${{ inputs.RELEASE_BRANCH }}" \
+            --title "${{ inputs.VERSION }}" \
+            --generate-notes
