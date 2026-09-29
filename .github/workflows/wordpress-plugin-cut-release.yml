@@ -117,7 +117,13 @@ jobs:
           # The bundled updater in these plugins reads GET /repos/{owner}/{repo}/releases/latest
           # and downloads its zipball_url, an archive of whatever commit the tag points at - so
           # this is what makes the filtered tree above actually reach client sites.
+          # --latest is explicit rather than left to gh's "automatic based on date and version"
+          # default: that auto-detection can fail to flag a release as latest at all (still
+          # visible via the /releases/latest endpoint through its own date-based fallback, but
+          # not as the "Latest" label in the UI) on a repo whose tag history mixes version
+          # formats (e.g. a bare "1.1" alongside "1.1.1", "2.0.1", ...).
           gh release create "${{ inputs.VERSION }}" \
             --target "${{ inputs.RELEASE_BRANCH }}" \
             --title "${{ inputs.VERSION }}" \
+            --latest \
             --generate-notes

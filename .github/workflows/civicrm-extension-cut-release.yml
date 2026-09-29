@@ -110,7 +110,12 @@ jobs:
           # civicrm.org's extension directory reads the tag's tree directly (via info.xml),
           # it doesn't need a GitHub Release to exist. This is created anyway because every
           # existing tag on these repos already has one, for changelog visibility.
+          # --latest is explicit rather than left to gh's "automatic based on date and version"
+          # default: that auto-detection can fail to flag a release as latest at all on a repo
+          # whose tag history mixes version formats (e.g. a bare "1.1" alongside "1.1.1",
+          # "2.0.1", ...), which is exactly what happened on the first cut of this workflow.
           gh release create "${{ inputs.VERSION }}" \
             --target "${{ inputs.RELEASE_BRANCH }}" \
             --title "${{ inputs.VERSION }}" \
+            --latest \
             --generate-notes
