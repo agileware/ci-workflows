@@ -1,12 +1,13 @@
 # CI Workflows
 
-Reusable GitHub Actions workflows for Agileware's CiviCRM extension repos. Each
-workflow spins up a WordPress + CiviCRM environment in Docker and runs a
-specific task against it.
+Reusable GitHub Actions workflows for Agileware's CiviCRM extension and WordPress plugin
+repos. Most workflows spin up a WordPress + CiviCRM environment in Docker and run a specific
+task against it; the release workflows operate on git/GitHub directly instead.
 
 - [civix Upgrade Workflow](#civix-upgrade-workflow) — runs `civix upgrade` and opens a PR with the result
 - [CiviCRM PHPUnit Testing Workflow](#civicrm-phpunit-testing-workflow) — runs an extension's headless PHPUnit suite
 - [Playwright Frontend Testing Workflow](#playwright-frontend-testing-workflow) — runs an extension's Playwright test suite
+- [WordPress Plugin Cut Release Workflow](#wordpress-plugin-cut-release-workflow) — builds a filtered release branch, tags it, and publishes the GitHub Release
 
 ## civix Upgrade Workflow
 
@@ -170,3 +171,84 @@ The same workflow tests a WordPress plugin by setting `COMPONENT_TYPE: plugin`. 
 - Tests run via `npx playwright test` from `PLAYWRIGHT_DIR`, with `BASE_URL`, `WP_ADMIN_USER`, `WP_ADMIN_PASS` and `CIVI_EXEC_PREFIX` (a ready-to-use `docker exec` prefix for running `wp`/`cv` inside the extension folder) available as environment variables.
 - The Playwright HTML report is always uploaded as the `playwright-report` artifact; on failure, screenshots/traces are also uploaded as the `playwright-test-results` artifact.
 - Docker logs are collected and uploaded as the `logs.tgz` artifact if the workflow fails.
+
+## WordPress Plugin Cut Release Workflow
+
+This reusable GitHub Actions workflow builds a filtered copy of a WordPress plugin's tree
+(dropping tests, CI config, and other dev-only paths) onto a `release` branch, tags that commit,
+and publishes the GitHub Release from it.
+
+This exists because a WordPress plugin's update check normally reads whatever commit a version
+tag points at (via GitHub's `/releases/latest` API and its `zipball_url`, an archive of that
+exact commit). Tagging the plugin's normal development branch directly means client sites
+receive its entire tree, tests and CI config included. Tagging a separate, always-filtered
+`release` branch instead means client sites only ever receive what they need to run.
+
+CiviCRM extensions have a different release/distribution mechanism (civicrm.org's extension
+directory reads git tags directly, with its own versioning conventions), so they need their own
+equivalent workflow rather than reusing this one; that hasn't been built yet.
+
+### 📂 File Location
+
+```
+.github/workflows/wordpress-plugin-cut-release.yml
+```
+
+### 🔧 Usage
+
+The `release` branch must already exist (branched once from the plugin's default branch, with
+that repo's excluded paths removed in the first commit) before this workflow is ever run; it
+updates the branch, it does not create it.
+
+Add a workflow such as `.github/workflows/cut-release.yml`, triggered manually from the Actions
+tab:
+
+```yaml
+name: Cut release
+
+on:
+  workflow_dispatch:
+    inputs:
+      VERSION:
+        description: 'Version to release (must match the Version header in the plugin file)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  cut-release:
+    uses: agileware/ci-workflows/.github/workflows/wordpress-plugin-cut-release.yml@main
+    with:
+      VERSION: ${{ inputs.VERSION }}
+      VERSION_FILE: my-plugin.php
+      EXCLUDE_PATHS: "tests .github CONTRIBUTING.md composer.json composer.lock"
+      # Optional
+      # RELEASE_BRANCH: release
+      # PLUGIN_NAME: my-plugin
+```
+
+### ⚙️ Inputs
+
+- `VERSION` — version to tag and release, matching the calling repo's existing tag naming (e.g. `2.0.6`).
+- `VERSION_FILE` — path (relative to the repo root) to the plugin file whose `Version:` header must equal `VERSION`. The job fails if they don't match, rather than tagging/publishing under the wrong version.
+- `EXCLUDE_PATHS` — space-separated repo-relative paths to drop from the release branch. Specific to each plugin's own dev-only paths.
+- `RELEASE_BRANCH` — branch that only ever holds filtered, release-ready content. Defaults to `release`. Must already exist.
+- `PLUGIN_NAME` — human-readable name, used only in log/commit wording. Defaults to the calling repository's name.
+
+### 🔐 Required Permissions
+
+The calling workflow must declare `permissions: contents: write` itself, in addition to the
+reusable workflow doing so: a reusable workflow's effective permissions are the intersection of
+both, and this job pushes commits/tags and creates a GitHub Release.
+
+### 🧠 Notes
+
+- Building the release branch content uses plain git plumbing, not a separate worktree or
+  rsync: it clears the release branch's tracked files, restores the triggering commit's full
+  tree on top, then removes `EXCLUDE_PATHS`.
+- If the resulting tree is identical to the release branch's current tip (nothing to release),
+  the job still tags and publishes, it just skips creating an empty commit.
+- The GitHub Release is created with `--generate-notes`, so it's worth keeping merge commit
+  messages/PR titles meaningful on the plugin's default branch.
