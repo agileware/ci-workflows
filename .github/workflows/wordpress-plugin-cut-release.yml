@@ -60,7 +60,16 @@ jobs:
           # Catches the case where someone dispatches this workflow with a version that
           # doesn't match what's actually in the plugin header on the branch being released,
           # which would otherwise tag/publish a release under the wrong version number.
-          HEADER_VERSION=$(grep -m1 -oP '(?<=Version:\s)[^\s]+' "${{ inputs.VERSION_FILE }}")
+          # \s* (not a fixed single \s) because plugin headers commonly align this column with
+          # multiple spaces (e.g. "Version:           1.32.7"), and \K keeps the match starting
+          # at the value rather than needing a fixed-width lookbehind. The explicit `|| {`
+          # matters too: under bash -e (GitHub Actions' default), a plain failed grep would abort
+          # the step right here with nothing but a bare "exit code 1", before the error below
+          # ever printed.
+          HEADER_VERSION=$(grep -m1 -oP 'Version:\s*\K\S+' "${{ inputs.VERSION_FILE }}") || {
+            echo "::error::Could not find a 'Version:' header in ${{ inputs.VERSION_FILE }}."
+            exit 1
+          }
           if [ "$HEADER_VERSION" != "${{ inputs.VERSION }}" ]; then
             echo "::error::${{ inputs.VERSION_FILE }} has Version: $HEADER_VERSION, but this run was dispatched with VERSION=${{ inputs.VERSION }}. Bump the header and merge that first."
             exit 1
