@@ -80,17 +80,20 @@ jobs:
           SOURCE_SHA=$(git rev-parse HEAD)
           git checkout "${{ inputs.RELEASE_BRANCH }}"
 
-          # Mirror the source commit's tree onto the release branch with plain git
-          # plumbing: clear everything currently tracked here, then restore the full
-          # source tree on top of it, then drop this repo's excluded paths.
-          git rm -rq --ignore-unmatch -- .
-          git checkout "$SOURCE_SHA" -- .
+          # Reset release's tip to *be* the source commit, not a fresh commit copying its
+          # tree on top of release's own prior history. That distinction matters: an earlier
+          # version of this workflow used `git rm` + `git checkout "$SOURCE_SHA" -- .` to copy
+          # file contents while leaving release's own commit as the parent, which silently
+          # broke `gh release create --generate-notes` (and any other ancestry-based
+          # changelog): commits merged on the source branch were never actual ancestors of
+          # the release branch, so GitHub had nothing to walk. Resetting instead makes every
+          # commit reachable from `main`/`master` also reachable from `release`, so tags and
+          # generated release notes see the real history.
+          git reset --hard "$SOURCE_SHA"
 
           for path in ${{ inputs.EXCLUDE_PATHS }}; do
-            rm -rf -- "$path"
+            git rm -rq --ignore-unmatch -- "$path"
           done
-
-          git add -A
 
       - name: Commit, tag, and push
         run: |
@@ -100,7 +103,12 @@ jobs:
             git commit -m "Release ${{ inputs.VERSION }}"
           fi
           git tag "${{ inputs.VERSION }}"
-          git push origin "${{ inputs.RELEASE_BRANCH }}" "${{ inputs.VERSION }}"
+          # --force: release's tip after the reset above is a descendant of the source
+          # branch, not of release's own previous tip (which carried its own now-discarded
+          # strip commit), so this is essentially always a non-fast-forward update. That's
+          # expected for a branch nobody is meant to develop on directly.
+          git push --force origin "${{ inputs.RELEASE_BRANCH }}"
+          git push origin "${{ inputs.VERSION }}"
 
       - name: Publish GitHub Release
         env:

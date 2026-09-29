@@ -246,9 +246,15 @@ both, and this job pushes commits/tags and creates a GitHub Release.
 
 ### 🧠 Notes
 
-- Building the release branch content uses plain git plumbing, not a separate worktree or
-  rsync: it clears the release branch's tracked files, restores the triggering commit's full
-  tree on top, then removes `EXCLUDE_PATHS`.
+- Building the release branch resets it to the triggering commit (`git reset --hard`), then
+  removes `EXCLUDE_PATHS` as a follow-up commit, rather than copying file contents onto a
+  fresh commit on top of release's own history. This is deliberate: `release`'s tip needs
+  every commit on the default branch as a real ancestor, or `gh release create
+  --generate-notes` (and any other ancestry-based changelog) has nothing to walk and silently
+  omits everything merged since release was last cut.
+- Because of that reset, updating `release` is pushed with `--force`, it is essentially never
+  a fast-forward of release's own previous tip. Nobody should develop directly on `release`,
+  its history gets rewritten on every cut.
 - If the resulting tree is identical to the release branch's current tip (nothing to release),
   the job still tags and publishes, it just skips creating an empty commit.
 - The GitHub Release is created with `--generate-notes`, so it's worth keeping merge commit
