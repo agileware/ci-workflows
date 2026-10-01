@@ -190,11 +190,12 @@ jobs:
           # docker exec does not populate it from -w on its own.
           # --log-junit writes to /tmp inside the container, not the extension
           # dir: that's a bind mount owned by the runner's user, and www-data
-          # can't write into it.
+          # can't write into it. For the same reason, --do-not-cache-result
+          # stops PHPUnit trying (and warning) to write .phpunit.result.cache.
           docker exec -u www-data \
             -w ${{ env.EXTENSION_DIR }} \
             -e PWD=${{ env.EXTENSION_DIR }} \
-            wordpress phpunit9 --log-junit /tmp/phpunit-results.xml ${{ inputs.PHPUNIT_ARGS }}
+            wordpress phpunit9 --do-not-cache-result --log-junit /tmp/phpunit-results.xml ${{ inputs.PHPUNIT_ARGS }}
 
       - name: Copy PHPUnit results out of container
         if: always()
