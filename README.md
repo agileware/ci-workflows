@@ -345,6 +345,11 @@ itself, in addition to the reusable workflow doing so.
   filtered tree, same "nothing to release" no-op handling.
 - `mkdocs.yml` must **not** be in `EXCLUDE_PATHS`: it ships in the release because the mkdocs
   server builds/serves the documentation site directly from it, same as `docs/` itself.
+- The last step pings `https://docs.civicrm.org/admin/publish/<shortname>/en/master` (an empty
+  `POST`) to tell civicrm.org's own docs hosting to rebuild from the just-pushed `docs/`.
+  `<shortname>` is `info.xml`'s `<file>` element, lowercased. This is best-effort: a non-2xx
+  response or an unreachable host only logs a `::warning::`, it never fails the job, the
+  release itself (tag, GitHub Release) is already complete by this point.
 
 ### Documentation Structure
 

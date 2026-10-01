@@ -295,3 +295,23 @@ jobs:
             --title "${{ inputs.VERSION }}" \
             --latest \
             --generate-notes
+
+      - name: Notify docs.civicrm.org to rebuild documentation
+        run: |
+          # docs.civicrm.org publishes each extension's docs/mkdocs.yml (see the steps above)
+          # under a URL keyed by the <file> element in info.xml, lowercased, e.g.
+          # au.com.agileware.civiquickbooks -> https://docs.civicrm.org/admin/publish/civiquickbooks/en/master.
+          # This is a best-effort ping, not published here: the release itself (tag, GitHub
+          # Release) is already complete by this point regardless of whether it succeeds.
+          SHORTNAME=$(grep -m1 -oP '(?<=<file>)[^<]+' info.xml | tr '[:upper:]' '[:lower:]') || {
+            echo "::error::Could not find a <file> element in info.xml to derive the docs.civicrm.org shortname."
+            exit 1
+          }
+          URL="https://docs.civicrm.org/admin/publish/${SHORTNAME}/en/master"
+          echo "Notifying $URL"
+          HTTP_CODE=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$URL") || HTTP_CODE="curl failed"
+          if [[ "$HTTP_CODE" =~ ^2 ]]; then
+            echo "docs.civicrm.org notified successfully (HTTP $HTTP_CODE)"
+          else
+            echo "::warning::docs.civicrm.org publish webhook returned $HTTP_CODE for $URL, the release itself is unaffected."
+          fi
