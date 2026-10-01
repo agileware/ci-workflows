@@ -9,6 +9,7 @@ task against it; the release workflows operate on git/GitHub directly instead.
 - [Playwright Frontend Testing Workflow](#playwright-frontend-testing-workflow) — runs an extension's Playwright test suite
 - [WordPress Plugin Cut Release Workflow](#wordpress-plugin-cut-release-workflow) — builds a filtered release branch, tags it, and publishes the GitHub Release
 - [CiviCRM Extension Cut Release Workflow](#civicrm-extension-cut-release-workflow) — same, versioned from info.xml instead of a plugin header
+- [CiviCRM Extension Init Release Workflow](#civicrm-extension-init-release-workflow) — one-time setup that adds the Cut Release workflow and `release` branch to a CiviCRM extension repo
 
 ## civix Upgrade Workflow
 
@@ -333,3 +334,88 @@ itself, in addition to the reusable workflow doing so.
   these repos of every tag having a matching Release.
 - Otherwise identical to the WordPress workflow: same git-plumbing approach to building the
   filtered tree, same "nothing to release" no-op handling.
+
+## CiviCRM Extension Init Release Workflow
+
+A one-time setup workflow for a CiviCRM extension repo that doesn't have the Cut Release
+workflow yet. Preparing a repo for `civicrm-extension-cut-release.yml` by hand means writing
+its caller workflow, writing a `CONTRIBUTING.md` process note, and branching/stripping/pushing
+the initial `release` branch, this does all three in one dispatch.
+
+### 📂 File Location
+
+```
+.github/workflows/civicrm-extension-init-release.yml
+```
+
+### 🔧 Usage
+
+Add a workflow such as `.github/workflows/init-release.yml`, triggered manually from the
+Actions tab. Unlike the Cut Release caller, this file never needs editing per repo, the exclude
+list is supplied at dispatch time instead of baked in:
+
+```yaml
+name: Init release
+
+on:
+  workflow_dispatch:
+    inputs:
+      EXCLUDE_PATHS:
+        description: 'Space-separated repo-relative paths to drop from the release branch (e.g. ".github tests .idea")'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  workflows: write
+
+jobs:
+  init-release:
+    uses: agileware/ci-workflows/.github/workflows/civicrm-extension-init-release.yml@main
+    with:
+      EXCLUDE_PATHS: ${{ inputs.EXCLUDE_PATHS }}
+```
+
+Run it once from the Actions tab with the exclude paths for that repo (inspect the repo first,
+same judgement call as before: dev-only CI config, test suites, IDE folders like `.idea`, build
+tooling like `mkdocs.yml`, but not an extension's own shipped `docs/`). It then:
+
+1. Writes `.github/workflows/cut-release.yml` (pre-filled with the `EXCLUDE_PATHS` you passed)
+   and a `CONTRIBUTING.md` process note, commits them, and pushes straight to the calling
+   branch.
+2. Branches `release` from that commit, strips `EXCLUDE_PATHS` from it, and pushes it as a new
+   branch on origin.
+
+After it finishes, the repo is ready for `civicrm-extension-cut-release.yml` exactly as if it
+had been set up by hand, dispatch "Cut release" the normal way to test it.
+
+### ⚙️ Inputs
+
+- `EXCLUDE_PATHS` — space-separated repo-relative paths to drop from the release branch. Baked
+  verbatim into the generated `cut-release.yml` and into the `CONTRIBUTING.md` note.
+- `RELEASE_BRANCH` — name for the branch this workflow creates. Defaults to `release`. Must not
+  already exist, this workflow creates it, it doesn't update one.
+- `EXTENSION_NAME` — human-readable name, used only in log wording. Defaults to the calling
+  repository's name.
+
+### 🔐 Required Permissions
+
+The calling workflow must declare both `permissions: contents: write` and
+`permissions: workflows: write` itself, in addition to the reusable workflow doing so: writing a
+new file under `.github/workflows/` needs the `workflows` permission as well as `contents`, a
+reusable workflow's effective permissions are the intersection of both.
+
+### 🧠 Notes
+
+- Refuses to run if `info.xml` is missing (not a CiviCRM extension), if
+  `.github/workflows/cut-release.yml` already exists, or if `RELEASE_BRANCH` already exists on
+  origin, so it's safe to leave this workflow file in a repo permanently without risking a
+  double-init.
+- The generated `cut-release.yml` contains a literal `${{ inputs.VERSION }}` expression, written
+  via GitHub's documented `${{ '${{' }}` escaping trick so that this workflow's own templating
+  pass doesn't try to evaluate it (this workflow has no `VERSION` input to evaluate it against).
+  Verified by extracting and running each `run:` step's script directly against a throwaway
+  local repo before this workflow was first used for real.
+- Same git-plumbing approach as the Cut Release workflows otherwise: a straightforward push for
+  the first commit on the calling branch, then a fresh `release` branch built directly from it
+  (no reset/force-push needed yet, there's no prior `release` history to reconcile).

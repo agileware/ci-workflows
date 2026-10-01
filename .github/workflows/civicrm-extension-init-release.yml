@@ -1,0 +1,129 @@
+name: civicrm extension init release
+
+on:
+  workflow_call:
+    inputs:
+      EXCLUDE_PATHS:
+        description: 'Space-separated repo-relative paths to drop from the release branch (e.g. ".github tests .idea")'
+        required: true
+        type: string
+      RELEASE_BRANCH:
+        description: 'Branch that will only ever hold filtered, release-ready content. Created by this workflow, must not already exist.'
+        required: false
+        default: 'release'
+        type: string
+      EXTENSION_NAME:
+        description: 'Human-readable extension name, used only in commit/log messages'
+        required: false
+        default: ${{ github.event.repository.name }}
+        type: string
+
+permissions:
+  contents: write
+  workflows: write
+
+jobs:
+  init-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify this is a CiviCRM extension
+        run: |
+          # The cut-release workflow this sets up always reads version/releaseDate from
+          # info.xml, so there's nothing sensible to initialise if it's missing.
+          if [ ! -f info.xml ]; then
+            echo "::error::No info.xml at the repo root. This workflow only sets up CiviCRM extensions."
+            exit 1
+          fi
+
+      - name: Guard against double-init
+        run: |
+          # Re-running this against an already-initialised repo would silently overwrite a
+          # hand-tuned cut-release.yml, or try to recreate a release branch whose history has
+          # since diverged from a real cut. A repo only gets initialised once; after that,
+          # changes to EXCLUDE_PATHS or the release branch are made by hand.
+          if [ -f .github/workflows/cut-release.yml ]; then
+            echo "::error::.github/workflows/cut-release.yml already exists, this repo looks already initialised."
+            exit 1
+          fi
+          if git ls-remote --exit-code --heads origin "${{ inputs.RELEASE_BRANCH }}" > /dev/null 2>&1; then
+            echo "::error::Branch '${{ inputs.RELEASE_BRANCH }}' already exists on origin, this repo looks already initialised."
+            exit 1
+          fi
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add Cut release workflow and process note
+        run: |
+          mkdir -p .github/workflows
+
+          # The nested ${{ '${{' }} is the standard trick for getting a literal ${{ }}
+          # expression into a file generated from inside a run: step: GitHub evaluates it to
+          # the 3-character string "${{" in a single textual pass, before bash ever sees this
+          # script, so the result sits inert in cut-release.yml rather than being evaluated
+          # again. EXCLUDE_PATHS below is the opposite: it's meant to be evaluated right here,
+          # baking this repo's actual exclude list into the generated file as a literal string.
+          cat > .github/workflows/cut-release.yml <<'YAML'
+          name: Cut release
+
+          on:
+            workflow_dispatch:
+              inputs:
+                VERSION:
+                  description: 'Version to release (must match <version> in info.xml)'
+                  required: true
+                  type: string
+
+          permissions:
+            contents: write
+
+          jobs:
+            cut-release:
+              uses: agileware/ci-workflows/.github/workflows/civicrm-extension-cut-release.yml@main
+              with:
+                VERSION: ${{ '${{' }} inputs.VERSION }}
+                EXCLUDE_PATHS: "${{ inputs.EXCLUDE_PATHS }}"
+          YAML
+
+          FORMATTED=""
+          for path in ${{ inputs.EXCLUDE_PATHS }}; do
+            FORMATTED="${FORMATTED}\`${path}\`, "
+          done
+          FORMATTED="${FORMATTED%, }"
+
+          cat > CONTRIBUTING.md <<MARKDOWN
+          # Contributing
+
+          ## Versioning and releases
+
+          - The extension version lives in the \`<version>\` element of \`info.xml\`. Bump it, and
+            \`<releaseDate>\`, on \`master\` as part of any release.
+          - Releases are cut from a \`release\` branch, not \`master\` directly, so that $FORMATTED
+            never reach client sites (civicrm.org's extension directory installs whatever a
+            version tag points at, in full).
+          - To cut a release: bump \`<version>\`/\`<releaseDate>\` on \`master\` and merge that, then
+            run **Cut release** from the Actions tab with a version matching what you just bumped.
+            It builds the filtered \`release\` branch, tags it, and publishes the GitHub Release.
+          MARKDOWN
+
+          git add .github/workflows/cut-release.yml CONTRIBUTING.md
+          git commit -m "Add Cut release workflow and process note"
+          git push origin "HEAD:${{ github.ref_name }}"
+
+      - name: Create release branch
+        run: |
+          SOURCE_SHA=$(git rev-parse HEAD)
+          git checkout -b "${{ inputs.RELEASE_BRANCH }}"
+          for path in ${{ inputs.EXCLUDE_PATHS }}; do
+            git rm -rq --ignore-unmatch -- "$path"
+          done
+          git commit -m "Start release branch: strip dev-only files"
+          git push origin "${{ inputs.RELEASE_BRANCH }}"
