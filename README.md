@@ -258,6 +258,9 @@ both, and this job pushes commits/tags and creates a GitHub Release.
   every commit on the default branch as a real ancestor, or `gh release create
   --generate-notes` (and any other ancestry-based changelog) has nothing to walk and silently
   omits everything merged since release was last cut.
+- `phpunit.xml.dist` is always stripped too, regardless of `EXCLUDE_PATHS`: it's PHPUnit's own
+  test-suite config, useless without `tests/` (already excluded by convention), and has no
+  runtime purpose on a client site.
 - Because of that reset, updating `release` is pushed with `--force`, it is essentially never
   a fast-forward of release's own previous tip. Nobody should develop directly on `release`,
   its history gets rewritten on every cut.

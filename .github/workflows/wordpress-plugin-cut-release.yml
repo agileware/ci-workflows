@@ -91,7 +91,10 @@ jobs:
           # generated release notes see the real history.
           git reset --hard "$SOURCE_SHA"
 
-          for path in ${{ inputs.EXCLUDE_PATHS }}; do
+          # phpunit.xml.dist is always stripped regardless of EXCLUDE_PATHS: it's PHPUnit's own
+          # test-suite config, useless without tests/ (already excluded by convention), and has
+          # no runtime purpose on a client site.
+          for path in ${{ inputs.EXCLUDE_PATHS }} phpunit.xml.dist; do
             git rm -rq --ignore-unmatch -- "$path"
           done
 
