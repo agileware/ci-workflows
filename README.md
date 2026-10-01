@@ -392,8 +392,10 @@ unchanged.
 
 A one-time setup workflow for a CiviCRM extension repo that doesn't have the Cut Release
 workflow yet. Preparing a repo for `civicrm-extension-cut-release.yml` by hand means writing
-its caller workflow, writing a `CONTRIBUTING.md` process note, and branching/stripping/pushing
-the initial `release` branch, this does all three in one dispatch.
+its caller workflow, writing a `CONTRIBUTING.md` process note, branching/stripping/pushing the
+initial `release` branch, and adding whichever of this org's other reusable CI workflows
+(`civix-upgrade.yml`, `civicrm-phpunit-tests.yml`, `playwright-tests.yml`) the repo doesn't
+already have a caller for, this does all of that in one dispatch.
 
 ### 📂 File Location
 
@@ -435,10 +437,24 @@ not `mkdocs.yml` or an extension's own shipped `docs/`, both of which ship in th
 then:
 
 1. Writes `.github/workflows/cut-release.yml` (pre-filled with the `EXCLUDE_PATHS` you passed)
-   and a `CONTRIBUTING.md` process note, commits them, and pushes straight to the calling
-   branch.
-2. Branches `release` from that commit, strips `EXCLUDE_PATHS` from it, and pushes it as a new
+   and a `CONTRIBUTING.md` process note.
+2. Writes `.github/workflows/civix-upgrade.yml` if the repo doesn't already have one, so every
+   extension gets `civix upgrade` PRs opened automatically.
+3. Writes `.github/workflows/phpunit-tests.yml` if the repo has a `phpunit.xml.dist` at its
+   root and doesn't already have this workflow, since there's nothing to test otherwise.
+4. Writes `.github/workflows/frontend-tests.yml` if the repo has
+   `tests/playwright/playwright.config.ts` and doesn't already have this workflow, same
+   reasoning. Also wires in `SETUP_SCRIPT: tests/playwright/fixtures/setup-environment.sh`
+   when that file exists too, matching the convention already used elsewhere, `SETUP_SCRIPT`
+   is otherwise left out rather than guessed at.
+5. Commits whatever combination of the above was actually added, plus `CONTRIBUTING.md`, in one
+   commit, and pushes straight to the calling branch.
+6. Branches `release` from that commit, strips `EXCLUDE_PATHS` from it, and pushes it as a new
    branch on origin.
+
+Steps 2-4 never touch a file that's already there, re-running this workflow (it refuses to,
+per the double-init guard below, but the individual file-writing steps are harmless no-ops on
+their own too) never overwrites a hand-tuned existing workflow.
 
 After it finishes, the repo is ready for `civicrm-extension-cut-release.yml` exactly as if it
 had been set up by hand, dispatch "Cut release" the normal way to test it.

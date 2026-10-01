@@ -114,8 +114,101 @@ jobs:
             It builds the filtered \`release\` branch, tags it, and publishes the GitHub Release.
           MARKDOWN
 
-          git add .github/workflows/cut-release.yml CONTRIBUTING.md
-          git commit -m "Add Cut release workflow and process note"
+      - name: Add civix upgrade workflow if missing
+        run: |
+          if [ ! -f .github/workflows/civix-upgrade.yml ]; then
+            cat > .github/workflows/civix-upgrade.yml <<'YAML'
+          name: civix upgrade
+          on:
+            workflow_dispatch: {}
+
+          jobs:
+            civix-upgrade:
+              uses: agileware/ci-workflows/.github/workflows/civix-upgrade.yml@main
+              secrets:
+                DOCKERHUB_USER: ${{ '${{' }} secrets.DOCKERHUB_USER }}
+                DOCKERHUB_TOKEN: ${{ '${{' }} secrets.DOCKERHUB_TOKEN }}
+              with:
+                EXTENSION_NAME: ${{ github.event.repository.name }}
+          YAML
+            echo "Added civix-upgrade.yml"
+          else
+            echo "civix-upgrade.yml already exists, leaving it alone"
+          fi
+
+      - name: Add PHPUnit tests workflow if missing
+        run: |
+          # Only added when the repo actually has a PHPUnit suite configured, otherwise this
+          # would add a CI workflow that fails on every run with nothing to test.
+          if [ -f phpunit.xml.dist ] && [ ! -f .github/workflows/phpunit-tests.yml ]; then
+            cat > .github/workflows/phpunit-tests.yml <<'YAML'
+          name: PHPUnit tests
+
+          on:
+            push: {}
+            workflow_dispatch: {}
+
+          jobs:
+            phpunit:
+              uses: agileware/ci-workflows/.github/workflows/civicrm-phpunit-tests.yml@main
+              secrets:
+                DOCKERHUB_USER: ${{ '${{' }} secrets.DOCKERHUB_USER }}
+                DOCKERHUB_TOKEN: ${{ '${{' }} secrets.DOCKERHUB_TOKEN }}
+              with:
+                EXTENSION_NAME: ${{ github.event.repository.name }}
+          YAML
+            echo "Added phpunit-tests.yml"
+          else
+            echo "Skipped phpunit-tests.yml (no phpunit.xml.dist, or it already exists)"
+          fi
+
+      - name: Add Playwright frontend tests workflow if missing
+        run: |
+          # Same reasoning as PHPUnit above: only added when a Playwright suite actually
+          # exists. SETUP_SCRIPT is optional on the reusable workflow itself, so it's included
+          # only when this repo follows the fixtures/setup-environment.sh convention already
+          # used elsewhere; otherwise it's simply left out rather than guessed at.
+          if [ -f tests/playwright/playwright.config.ts ] && [ ! -f .github/workflows/frontend-tests.yml ]; then
+            # Bash variables, not the usual ${{ '${{' }} trick, because this step also needs
+            # real bash expansion (for SETUP_SCRIPT_LINE below), and the two don't mix cleanly
+            # inside the same heredoc: once GitHub's own substitution reduces ${{ '${{' }} down
+            # to a literal ${{, an *unquoted* heredoc would hand that straight to bash, which
+            # would then try (and fail) to parse it as its own parameter expansion.
+            OPEN='${{'
+            CLOSE='}}'
+            if [ -f tests/playwright/fixtures/setup-environment.sh ]; then
+              SETUP_SCRIPT_LINE="
+                SETUP_SCRIPT: tests/playwright/fixtures/setup-environment.sh"
+            else
+              SETUP_SCRIPT_LINE=""
+            fi
+            cat > .github/workflows/frontend-tests.yml <<YAML
+          name: frontend tests
+
+          on:
+            push:
+              branches: [${{ github.event.repository.default_branch }}]
+            pull_request:
+            workflow_dispatch: {}
+
+          jobs:
+            playwright:
+              uses: agileware/ci-workflows/.github/workflows/playwright-tests.yml@main
+              secrets:
+                DOCKERHUB_USER: $OPEN secrets.DOCKERHUB_USER $CLOSE
+                DOCKERHUB_TOKEN: $OPEN secrets.DOCKERHUB_TOKEN $CLOSE
+              with:
+                EXTENSION_NAME: ${{ github.event.repository.name }}$SETUP_SCRIPT_LINE
+          YAML
+            echo "Added frontend-tests.yml"
+          else
+            echo "Skipped frontend-tests.yml (no tests/playwright/playwright.config.ts, or it already exists)"
+          fi
+
+      - name: Commit and push workflow files
+        run: |
+          git add -A -- .github/workflows CONTRIBUTING.md
+          git commit -m "Add release and CI workflows"
           git push origin "HEAD:${{ github.ref_name }}"
 
       - name: Create release branch
