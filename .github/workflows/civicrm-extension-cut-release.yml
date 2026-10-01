@@ -146,6 +146,13 @@ jobs:
           def resolve(url):
               if is_absolute(url):
                   return None
+              # The Agileware logo always ends up at this fixed path (see the next step), even
+              # though this step runs before that move happens, so the generic base_dir
+              # resolution below would still point at wherever it used to live, a prior
+              # step's root-vs-docs ambiguity doesn't apply to an asset whose destination is
+              # already known for certain.
+              if os.path.basename(url) == 'agileware-logo.png':
+                  return 'docs/logo/agileware-logo.png'
               resolved = os.path.normpath(os.path.join(base_dir, url)).replace(os.sep, '/')
               if resolved.startswith('../'):
                   return None
@@ -173,6 +180,17 @@ jobs:
             mkdir -p docs/logo
             cp .ci-workflows-docs-template/docs-template/logo/agileware-logo.png docs/logo/agileware-logo.png
             echo "Copied agileware-logo.png from ci-workflows docs-template"
+
+            # Superseded by docs/logo/ above: an old root-level logo/agileware-logo.png (from
+            # before this extension had a docs/ structure) is now unreferenced, since
+            # docs/README.md's own logo link points at docs/logo/ instead. Remove just the
+            # file via git, then the directory too, but only if that leaves it empty, in case
+            # some repo's root logo/ ever holds something else alongside it.
+            if [ -f logo/agileware-logo.png ]; then
+              git rm -q -- logo/agileware-logo.png
+              rmdir logo 2>/dev/null || true
+              echo "Removed old root logo/agileware-logo.png, superseded by docs/logo/"
+            fi
           fi
 
       - name: Update info.xml Documentation URL

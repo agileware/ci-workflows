@@ -313,7 +313,7 @@ jobs:
     uses: agileware/ci-workflows/.github/workflows/civicrm-extension-cut-release.yml@main
     with:
       VERSION: ${{ inputs.VERSION }}
-      EXCLUDE_PATHS: ".github tests mkdocs.yml"
+      EXCLUDE_PATHS: ".github tests"
       # Optional
       # RELEASE_BRANCH: release
       # EXTENSION_NAME: my_extension
@@ -340,9 +340,8 @@ itself, in addition to the reusable workflow doing so.
   these repos of every tag having a matching Release.
 - Otherwise identical to the WordPress workflow: same git-plumbing approach to building the
   filtered tree, same "nothing to release" no-op handling.
-- `mkdocs.yml` needs to be in `EXCLUDE_PATHS`, it's build tooling for the documentation site,
-  not something a client site needs. `docs/` itself is **not** excluded, it's the extension's
-  own shipped documentation.
+- `mkdocs.yml` must **not** be in `EXCLUDE_PATHS`: it ships in the release because the mkdocs
+  server builds/serves the documentation site directly from it, same as `docs/` itself.
 
 ### Documentation Structure
 
@@ -367,7 +366,12 @@ from it:
    against whichever base actually applies.
 5. Creates `docs/logo/agileware-logo.png` if missing, copied from
    [ci-workflows' `docs-template/logo/`](docs-template/logo/agileware-logo.png), not from
-   anything already in the calling repo, so every extension ends up with the same asset.
+   anything already in the calling repo, so every extension ends up with the same asset. If
+   this step actually creates it (i.e. it was missing), and an old root-level
+   `logo/agileware-logo.png` exists (from before this extension had a `docs/` structure), that
+   old file is removed too, it's unreferenced the moment `docs/README.md`'s own logo link
+   points at `docs/logo/` instead. The directory goes too, but only once it's empty, in case
+   some repo's root `logo/` ever holds something else alongside it.
 6. Updates (or adds) `info.xml`'s `Documentation` URL to point at `docs/README.md`, since that's
    civicrm.org's extension directory's own source for that link, and it needs to follow the move
    in step 3.
@@ -423,8 +427,9 @@ jobs:
 ```
 
 Run it once from the Actions tab with the exclude paths for that repo (inspect the repo first,
-same judgement call as before: dev-only CI config, test suites, IDE folders like `.idea`, build
-tooling like `mkdocs.yml`, but not an extension's own shipped `docs/`). It then:
+same judgement call as before: dev-only CI config, test suites, IDE folders like `.idea`, but
+not `mkdocs.yml` or an extension's own shipped `docs/`, both of which ship in the release). It
+then:
 
 1. Writes `.github/workflows/cut-release.yml` (pre-filled with the `EXCLUDE_PATHS` you passed)
    and a `CONTRIBUTING.md` process note, commits them, and pushes straight to the calling
