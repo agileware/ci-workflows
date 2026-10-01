@@ -273,6 +273,12 @@ gets tagged instead of the extension's default branch), but versioned from `info
 than a plugin file header, since civicrm.org's extension directory reads the tag's tree
 directly (no GitHub-specific release-asset or `zipball_url` step to account for).
 
+Before building the release branch, this workflow also standardises the extension's
+documentation structure on the calling branch itself (`mkdocs.yml`, a `docs/` directory, an
+absolute-linked `docs/README.md`, `docs/logo/agileware-logo.png`, and `info.xml`'s
+Documentation URL), pushing that as a normal commit before the filtered `release` branch is
+built from it. See [Documentation Structure](#documentation-structure) below.
+
 ### 📂 File Location
 
 ```
@@ -334,6 +340,46 @@ itself, in addition to the reusable workflow doing so.
   these repos of every tag having a matching Release.
 - Otherwise identical to the WordPress workflow: same git-plumbing approach to building the
   filtered tree, same "nothing to release" no-op handling.
+- `mkdocs.yml` needs to be in `EXCLUDE_PATHS`, it's build tooling for the documentation site,
+  not something a client site needs. `docs/` itself is **not** excluded, it's the extension's
+  own shipped documentation.
+
+### Documentation Structure
+
+Every cut-release run checks the calling branch (not the `release` branch) for the standard
+docs layout used across these extensions (see `au.com.agileware.eventmanagelocations` and
+`au.com.agileware.ewayrecurring`), and brings it up to date before the release branch is built
+from it:
+
+1. Creates `mkdocs.yml` if missing, filling in `site_name`/`repo_url`/`site_description` from
+   `info.xml`'s `<name>` element and the calling repository, from the template in
+   [ci-workflows' own `docs-template/`](docs-template/mkdocs.yml).
+2. Creates `docs/` if missing.
+3. Moves `README.md` into `docs/README.md` if the latter doesn't exist yet (a move, not a copy,
+   there's no reason to keep two diverging copies once `docs/README.md` is the published one).
+4. Rewrites every relative link/image in `docs/README.md` to an absolute
+   `https://github.com/<repo>/blob/<default-branch>/...` (or `.../raw/...` for images) URL.
+   mkdocs only serves files under `docs/`, so a relative link that resolves correctly when
+   GitHub renders the file in place breaks once the same content is built into a standalone
+   mkdocs site. A README just moved from the repo root (step 3, this run) has links written
+   relative to the root; one that already lived in `docs/` (a prior run, or a repo that started
+   there, like `ewayrecurring`) has links written relative to `docs/` itself, this step resolves
+   against whichever base actually applies.
+5. Creates `docs/logo/agileware-logo.png` if missing, copied from
+   [ci-workflows' `docs-template/logo/`](docs-template/logo/agileware-logo.png), not from
+   anything already in the calling repo, so every extension ends up with the same asset.
+6. Updates (or adds) `info.xml`'s `Documentation` URL to point at `docs/README.md`, since that's
+   civicrm.org's extension directory's own source for that link, and it needs to follow the move
+   in step 3.
+
+Each check is independent and idempotent, a repo that already has some or all of this (like
+`ewayrecurring`) only gets the parts it's actually missing brought up to date, and a repo that's
+fully up to date produces no commit at all. Verified, before this was ever used for real, by
+extracting each step's script and running it against: a throwaway repo seeded with a real
+extension's pre-migration `README.md`/`info.xml` (reproduced `au.com.agileware.ewayrecurring`'s
+real historical "Use absolute GitHub URLs" commit byte for byte), and a throwaway repo seeded
+with `au.com.agileware.ewayrecurring`'s current, already-migrated `docs/`, which came back
+unchanged.
 
 ## CiviCRM Extension Init Release Workflow
 

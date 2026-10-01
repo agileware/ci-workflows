@@ -67,6 +67,161 @@ jobs:
             exit 1
           fi
 
+      - name: Checkout ci-workflows docs template
+        uses: actions/checkout@v4
+        with:
+          repository: agileware/ci-workflows
+          path: .ci-workflows-docs-template
+
+      - name: Ensure mkdocs.yml exists
+        run: |
+          # Every extension documented this way gets the same mkdocs-material scaffold, only
+          # site_name/repo_url/site_description vary, pulled from info.xml and the repo itself.
+          if [ ! -f mkdocs.yml ]; then
+            NAME=$(grep -m1 -oP '(?<=<name>)[^<]+' info.xml) || {
+              echo "::error::Could not find a <name> element in info.xml to build mkdocs.yml from."
+              exit 1
+            }
+            SITE_NAME="$NAME for CiviCRM"
+            SITE_DESCRIPTION="A guide for the $NAME CiviCRM extension."
+            REPO_URL="https://github.com/${{ github.repository }}"
+            sed \
+              -e "s|__SITE_NAME__|$SITE_NAME|" \
+              -e "s|__REPO_URL__|$REPO_URL|" \
+              -e "s|__SITE_DESCRIPTION__|$SITE_DESCRIPTION|" \
+              .ci-workflows-docs-template/docs-template/mkdocs.yml > mkdocs.yml
+            echo "Created mkdocs.yml"
+          fi
+
+      - name: Ensure docs/README.md exists
+        id: docs_readme
+        run: |
+          mkdir -p docs
+          # A move, not a copy: a duplicate root README would immediately drift from the
+          # docs/ copy (which gets absolute-ified links below), and civicrm.org/GitHub have no
+          # need for a second copy once Documentation points at docs/README.md.
+          MOVED=false
+          if [ ! -f docs/README.md ] && [ -f README.md ]; then
+            git mv README.md docs/README.md
+            MOVED=true
+            echo "Moved README.md to docs/README.md"
+          fi
+          echo "moved=$MOVED" >> "$GITHUB_OUTPUT"
+
+      - name: Make docs/README.md links absolute
+        run: |
+          # mkdocs only serves files under docs/, so a link like ../LICENSE.txt or
+          # img/foo.png that resolves correctly when GitHub renders this file in place breaks
+          # once the same file is built into a standalone mkdocs site. Rewriting every
+          # relative link/image to its absolute github.com blob/raw URL works identically in
+          # both places. Verified against this org's own prior hand-made conversions
+          # (au.com.agileware.ewayrecurring's "Use absolute GitHub URLs" commit, and
+          # au.com.agileware.eventmanagelocations' original move) before this step was ever
+          # used for real: running it against each commit's "before" file reproduced the real
+          # "after" file byte for byte.
+          if [ -f docs/README.md ]; then
+            # A README just moved from the repo root this run still has links written relative
+            # to the root (e.g. LICENSE.txt, tests/playwright/README.md); one that already
+            # lived in docs/ (from a prior run, or a repo that started there) has links written
+            # relative to docs/ itself (e.g. UPGRADE.md, img/foo.png, logo/foo.png). Resolve
+            # against whichever base matches, or every link in a freshly-moved README would
+            # silently gain a spurious extra docs/ segment.
+            if [ "${{ steps.docs_readme.outputs.moved }}" = "true" ]; then
+              BASE_DIR="."
+            else
+              BASE_DIR="docs"
+            fi
+            python3 - "${{ github.repository }}" "${{ github.event.repository.default_branch }}" docs/README.md "$BASE_DIR" <<'PYEOF'
+          import re, os, sys
+
+          repo, branch, path, base_dir = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+          with open(path) as f:
+              content = f.read()
+
+          link_pattern = re.compile(r'(!?)\[([^\]]*)\]\(([^)\s]+)(\s+"[^"]*")?\)')
+
+          def is_absolute(url):
+              return re.match(r'^[a-zA-Z][a-zA-Z0-9+.-]*:', url) is not None or url.startswith('//') or url.startswith('#')
+
+          def resolve(url):
+              if is_absolute(url):
+                  return None
+              resolved = os.path.normpath(os.path.join(base_dir, url)).replace(os.sep, '/')
+              if resolved.startswith('../'):
+                  return None
+              return resolved
+
+          def replace(m):
+              bang, text, url, title = m.group(1), m.group(2), m.group(3), m.group(4) or ''
+              resolved = resolve(url)
+              if resolved is None:
+                  return m.group(0)
+              kind = 'raw' if bang == '!' else 'blob'
+              return f'{bang}[{text}](https://github.com/{repo}/{kind}/{branch}/{resolved}{title})'
+
+          new_content = link_pattern.sub(replace, content)
+          if new_content != content:
+              with open(path, 'w') as f:
+                  f.write(new_content)
+              print(f"::notice::Rewrote relative links in {path} to absolute GitHub URLs")
+          PYEOF
+          fi
+
+      - name: Ensure docs/logo/agileware-logo.png exists
+        run: |
+          if [ ! -f docs/logo/agileware-logo.png ]; then
+            mkdir -p docs/logo
+            cp .ci-workflows-docs-template/docs-template/logo/agileware-logo.png docs/logo/agileware-logo.png
+            echo "Copied agileware-logo.png from ci-workflows docs-template"
+          fi
+
+      - name: Update info.xml Documentation URL
+        run: |
+          # The extension's documentation now lives at docs/README.md, not README.md, so
+          # civicrm.org's extension directory (which reads this straight from info.xml) needs
+          # to be pointed at the new location.
+          DOC_URL="https://github.com/${{ github.repository }}/blob/${{ github.event.repository.default_branch }}/docs/README.md"
+          python3 - "$DOC_URL" info.xml <<'PYEOF'
+          import re, sys
+
+          doc_url, path = sys.argv[1], sys.argv[2]
+          with open(path) as f:
+              content = f.read()
+
+          full = re.compile(r'(<url desc="Documentation">)(.*?)(</url>)', re.DOTALL)
+          selfclosing = re.compile(r'<url desc="Documentation"\s*/>')
+          main_page = re.compile(r'(<url desc="Main Extension Page">.*?</url>\n)')
+
+          m = full.search(content)
+          if m:
+              if m.group(2) == doc_url:
+                  sys.exit(0)
+              content = full.sub(lambda m: m.group(1) + doc_url + m.group(3), content, count=1)
+          elif selfclosing.search(content):
+              content = selfclosing.sub(f'<url desc="Documentation">{doc_url}</url>', content, count=1)
+          elif main_page.search(content):
+              content = main_page.sub(lambda m: m.group(1) + f'    <url desc="Documentation">{doc_url}</url>\n', content, count=1)
+          else:
+              print("::error::Could not find a <urls> block in info.xml to add the Documentation URL")
+              sys.exit(1)
+
+          with open(path, 'w') as f:
+              f.write(content)
+          print(f"::notice::Set info.xml Documentation URL to {doc_url}")
+          PYEOF
+
+      - name: Commit and push docs structure changes
+        run: |
+          # Scoped pathspecs, not `git add -A`: .ci-workflows-docs-template/ (checked out
+          # above) sits untracked in this same working directory and must never be staged.
+          git add -A -- mkdocs.yml docs info.xml
+          if git diff --cached --quiet; then
+            echo "Docs structure already up to date, nothing to commit."
+          else
+            git commit -m "Standardise extension docs structure (mkdocs.yml, docs/, absolute links)"
+            git push origin "HEAD:${{ github.ref_name }}"
+          fi
+
       - name: Build filtered tree onto the release branch
         run: |
           SOURCE_SHA=$(git rev-parse HEAD)

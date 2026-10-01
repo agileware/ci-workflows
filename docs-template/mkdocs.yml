@@ -1,0 +1,26 @@
+site_name: __SITE_NAME__
+repo_url: __REPO_URL__
+site_description: '__SITE_DESCRIPTION__'
+site_author: 'agileware'
+theme:
+  name: material
+
+nav:
+  - 'Introduction': README.md
+
+markdown_extensions:
+  - attr_list
+  - admonition
+  - def_list
+  - codehilite
+  - toc:
+      permalink: True
+  - pymdownx.superfences
+  - pymdownx.inlinehilite
+  - pymdownx.tilde
+  - pymdownx.betterem
+  - pymdownx.mark
+
+plugins:
+  - search:
+      lang: en
