@@ -159,11 +159,16 @@ The same workflow tests a WordPress plugin by setting `COMPONENT_TYPE: plugin`. 
 - `PLAYWRIGHT_DIR` — directory (relative to the repo root) containing `package.json` and `playwright.config.ts`. Defaults to `tests/playwright`.
 - `SETUP_SCRIPT` — optional path (relative to the repo root) to a repo-specific shell script that runs after WordPress/CiviCRM/the component are up, before the Playwright tests. Use it to create test users/roles and seed data. Runs as `www-data` with its working directory set to the component's folder inside the WordPress container, so it can call `wp` and `cv` directly.
 - `NODE_VERSION` — Node.js version to run Playwright with. Defaults to `20`.
+- `PRE_ACTIVATE_SCRIPT` — optional path (relative to the repo root) to a repo-specific shell script that runs after WordPress and CiviCRM are installed but *before* the component is activated or enabled. Use it to install plugins the component depends on: since WordPress 6.5, `wp plugin activate` refuses a plugin whose `Requires plugins:` are not active. Runs as `www-data` in the component's folder, like `SETUP_SCRIPT`, and receives the `GRAVITYFORMS_LICENSE_KEY` secret (if passed) as an environment variable.
 
 ### 🔐 Required Secrets
 
 - `DOCKERHUB_USER`
 - `DOCKERHUB_TOKEN`
+
+Optional:
+
+- `GRAVITYFORMS_LICENSE_KEY` — for callers whose `PRE_ACTIVATE_SCRIPT` installs Gravity Forms or its add-ons, which are commercially licensed. Passed to the script as an environment variable and never placed on a command line. Pull requests from forks do not receive secrets.
 
 ### 🧠 Notes
 

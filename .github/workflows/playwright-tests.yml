@@ -42,11 +42,25 @@ on:
         required: false
         default: '20'
         type: string
+      PRE_ACTIVATE_SCRIPT:
+        description: >
+          Optional path (relative to the repo root) to a repo-specific shell script that runs
+          after WordPress and CiviCRM are installed but BEFORE the component is activated or
+          enabled. Use it to install plugins the component depends on - e.g. a WordPress plugin
+          declaring "Requires plugins:", which `wp plugin activate` refuses until those plugins
+          are active. Runs as www-data with its working directory set to the component's folder,
+          and receives the GRAVITYFORMS_LICENSE_KEY secret (if passed) as an environment variable.
+        required: false
+        default: ''
+        type: string
     secrets:
       DOCKERHUB_USER:
         required: true
       DOCKERHUB_TOKEN:
         required: true
+      GRAVITYFORMS_LICENSE_KEY:
+        description: 'Gravity Forms licence key, for callers whose PRE_ACTIVATE_SCRIPT installs Gravity Forms or its add-ons.'
+        required: false
 
 jobs:
   playwright:
@@ -216,6 +230,15 @@ jobs:
           # plugin is active) get included when the rules are persisted.
           # Flushing any earlier would miss it entirely.
           docker exec -u www-data wordpress wp rewrite flush --hard
+
+      - name: Run repo-specific pre-activation script
+        if: ${{ inputs.PRE_ACTIVATE_SCRIPT != '' }}
+        env:
+          GRAVITYFORMS_LICENSE_KEY: ${{ secrets.GRAVITYFORMS_LICENSE_KEY }}
+        run: |
+          # `-e NAME` without a value copies the variable from this step's environment, so the
+          # secret never appears on the command line (or in the log).
+          docker exec -u www-data -w ${{ env.COMPONENT_DIR }} -e GRAVITYFORMS_LICENSE_KEY wordpress bash "${{ inputs.PRE_ACTIVATE_SCRIPT }}"
 
       - name: Enable extension under test
         if: ${{ inputs.COMPONENT_TYPE != 'plugin' }}
