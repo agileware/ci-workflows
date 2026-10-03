@@ -427,11 +427,12 @@ on:
 
 permissions:
   contents: write
-  workflows: write
 
 jobs:
   init-release:
     uses: agileware/ci-workflows/.github/workflows/civicrm-extension-init-release.yml@main
+    secrets:
+      WORKFLOW_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
     with:
       EXCLUDE_PATHS: ${{ inputs.EXCLUDE_PATHS }}
 ```
@@ -473,12 +474,19 @@ had been set up by hand, dispatch "Cut release" the normal way to test it.
 - `EXTENSION_NAME` — human-readable name, used only in log wording. Defaults to the calling
   repository's name.
 
-### 🔐 Required Permissions
+### 🔐 Required Secrets
 
-The calling workflow must declare both `permissions: contents: write` and
-`permissions: workflows: write` itself, in addition to the reusable workflow doing so: writing a
-new file under `.github/workflows/` needs the `workflows` permission as well as `contents`, a
-reusable workflow's effective permissions are the intersection of both.
+- `WORKFLOW_TOKEN` — a personal access token that is allowed to push changes under
+  `.github/workflows` in the calling repository: a classic token with the `repo` and `workflow`
+  scopes, or a fine-grained token with **Contents** and **Workflows** read and write access to
+  that repository. Add it to the repository (or organisation) as an Actions secret and pass it
+  through as shown above. The workflow uses it to check out the repository, so its pushes (the
+  workflow files, then the `release` branch) are made with it.
+
+The default `GITHUB_TOKEN` cannot be used instead: GitHub refuses to let it create or change
+files under `.github/workflows`, and there is no `workflows` entry for the `permissions:` key
+(a workflow that declares one is rejected as invalid). The calling workflow only needs
+`permissions: contents: write`.
 
 ### 🧠 Notes
 
@@ -491,6 +499,13 @@ reusable workflow's effective permissions are the intersection of both.
   pass doesn't try to evaluate it (this workflow has no `VERSION` input to evaluate it against).
   Verified by extracting and running each `run:` step's script directly against a throwaway
   local repo before this workflow was first used for real.
+- GitHub scans the whole file for expressions, comments in `run:` steps included. An opening
+  expression delimiter that is not followed by a complete expression anywhere in this file, even
+  inside a shell comment, makes the entire workflow invalid ("failed to parse workflow"). The
+  frontend tests step therefore builds the delimiter from two quoted pieces instead of writing it
+  out. Keep that in mind when editing the templates.
+- The generated `CONTRIBUTING.md` names the calling repository's default branch rather than
+  assuming `master`.
 - Same git-plumbing approach as the Cut Release workflows otherwise: a straightforward push for
   the first commit on the calling branch, then a fresh `release` branch built directly from it
   (no reset/force-push needed yet, there's no prior `release` history to reconcile).

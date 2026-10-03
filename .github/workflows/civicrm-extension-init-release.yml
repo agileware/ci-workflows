@@ -17,10 +17,13 @@ on:
         required: false
         default: ${{ github.event.repository.name }}
         type: string
+    secrets:
+      WORKFLOW_TOKEN:
+        description: 'A personal access token that may push changes to .github/workflows (classic: repo + workflow scopes; fine-grained: Contents and Workflows read/write on the repository). The default GITHUB_TOKEN can never do this, and there is no workflows permission to grant it.'
+        required: true
 
 permissions:
   contents: write
-  workflows: write
 
 jobs:
   init-release:
@@ -31,6 +34,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # Later steps push with the credentials saved here. This has to be a personal
+          # access token because GitHub refuses to let GITHUB_TOKEN create or change files
+          # under .github/workflows.
+          token: ${{ secrets.WORKFLOW_TOKEN }}
 
       - name: Verify this is a CiviCRM extension
         run: |
@@ -65,11 +72,15 @@ jobs:
         run: |
           mkdir -p .github/workflows
 
-          # The nested ${{ '${{' }} is the standard trick for getting a literal ${{ }}
-          # expression into a file generated from inside a run: step: GitHub evaluates it to
-          # the 3-character string "${{" in a single textual pass, before bash ever sees this
-          # script, so the result sits inert in cut-release.yml rather than being evaluated
-          # again. EXCLUDE_PATHS below is the opposite: it's meant to be evaluated right here,
+          # The generated file needs a literal GitHub expression for the VERSION input. To get
+          # one out of a run step, the template writes an expression whose value is the
+          # opening delimiter, followed by the rest as plain text (see the
+          # VERSION line below). GitHub evaluates that in a single textual pass before bash
+          # sees this script, so the result sits inert in cut-release.yml rather than being
+          # evaluated again. Take care never to write the opening delimiter followed by
+          # anything but a complete expression anywhere in this file, comments included:
+          # GitHub scans the whole file and rejects it as invalid otherwise.
+          # EXCLUDE_PATHS below is the opposite: it is meant to be evaluated right here,
           # baking this repo's actual exclude list into the generated file as a literal string.
           cat > .github/workflows/cut-release.yml <<'YAML'
           name: Cut release
@@ -105,11 +116,11 @@ jobs:
           ## Versioning and releases
 
           - The extension version lives in the \`<version>\` element of \`info.xml\`. Bump it, and
-            \`<releaseDate>\`, on \`master\` as part of any release.
-          - Releases are cut from a \`release\` branch, not \`master\` directly, so that $FORMATTED
+            \`<releaseDate>\`, on \`${{ github.event.repository.default_branch }}\` as part of any release.
+          - Releases are cut from a \`release\` branch, not \`${{ github.event.repository.default_branch }}\` directly, so that $FORMATTED
             never reach client sites (civicrm.org's extension directory installs whatever a
             version tag points at, in full).
-          - To cut a release: bump \`<version>\`/\`<releaseDate>\` on \`master\` and merge that, then
+          - To cut a release: bump \`<version>\`/\`<releaseDate>\` on \`${{ github.event.repository.default_branch }}\` and merge that, then
             run **Cut release** from the Actions tab with a version matching what you just bumped.
             It builds the filtered \`release\` branch, tags it, and publishes the GitHub Release.
           MARKDOWN
@@ -169,12 +180,13 @@ jobs:
           # only when this repo follows the fixtures/setup-environment.sh convention already
           # used elsewhere; otherwise it's simply left out rather than guessed at.
           if [ -f tests/playwright/playwright.config.ts ] && [ ! -f .github/workflows/frontend-tests.yml ]; then
-            # Bash variables, not the usual ${{ '${{' }} trick, because this step also needs
-            # real bash expansion (for SETUP_SCRIPT_LINE below), and the two don't mix cleanly
-            # inside the same heredoc: once GitHub's own substitution reduces ${{ '${{' }} down
-            # to a literal ${{, an *unquoted* heredoc would hand that straight to bash, which
-            # would then try (and fail) to parse it as its own parameter expansion.
-            OPEN='${{'
+            # Bash variables instead of the expression trick used above, because this step also
+            # needs real bash expansion (for SETUP_SCRIPT_LINE below), and the two do not mix
+            # cleanly inside the same heredoc: an unquoted heredoc would hand the literal
+            # opening delimiter straight to bash, which would then try (and fail) to parse
+            # it as its own parameter expansion. OPEN is assembled from two quoted pieces so
+            # that the opening delimiter never appears in this file as one literal.
+            OPEN='$'"{{"
             CLOSE='}}'
             if [ -f tests/playwright/fixtures/setup-environment.sh ]; then
               SETUP_SCRIPT_LINE="
