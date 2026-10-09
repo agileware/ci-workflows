@@ -125,8 +125,23 @@ jobs:
           # visible via the /releases/latest endpoint through its own date-based fallback, but
           # not as the "Latest" label in the UI) on a repo whose tag history mixes version
           # formats (e.g. a bare "1.1" alongside "1.1.1", "2.0.1", ...).
+          #
+          # --notes-start-tag is explicit too. Each tag points at its own "Release X" strip
+          # commit, which the next run's reset discards from the release branch, so the
+          # previous release's tag is never an ancestor of the new one. Left to itself,
+          # --generate-notes falls back to the newest tag that *is* an ancestor (the last one
+          # cut by hand on the source branch), and every release repeats the same notes from
+          # there. Pinning the start tag makes GitHub compare from the previous version's
+          # merge base instead, which covers exactly the PRs merged since then.
+          PREV_TAG=$(git tag --list | grep -E '^v?[0-9]' | sort -uV \
+            | grep -xF -B1 "${{ inputs.VERSION }}" | grep -vxF "${{ inputs.VERSION }}") || PREV_TAG=""
+          NOTES_ARGS=(--generate-notes)
+          if [ -n "$PREV_TAG" ]; then
+            echo "Generating release notes since $PREV_TAG."
+            NOTES_ARGS+=(--notes-start-tag "$PREV_TAG")
+          fi
           gh release create "${{ inputs.VERSION }}" \
             --target "${{ inputs.RELEASE_BRANCH }}" \
             --title "${{ inputs.VERSION }}" \
             --latest \
-            --generate-notes
+            "${NOTES_ARGS[@]}"
