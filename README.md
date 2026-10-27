@@ -6,6 +6,7 @@ task against it; the release workflows operate on git/GitHub directly instead.
 
 - [civix Upgrade Workflow](#civix-upgrade-workflow) — runs `civix upgrade` and opens a PR with the result
 - [CiviCRM PHPUnit Testing Workflow](#civicrm-phpunit-testing-workflow) — runs an extension's headless PHPUnit suite
+- [CiviCRM Extension Upgrade Test Workflow](#civicrm-extension-upgrade-test-workflow) — installs an older release, seeds it, upgrades to the commit under test and checks the result
 - [Playwright Frontend Testing Workflow](#playwright-frontend-testing-workflow) — runs an extension's Playwright test suite
 - [WordPress Plugin Cut Release Workflow](#wordpress-plugin-cut-release-workflow) — builds a filtered release branch, tags it, and publishes the GitHub Release
 - [CiviCRM Extension Cut Release Workflow](#civicrm-extension-cut-release-workflow) — same, versioned from info.xml instead of a plugin header
@@ -102,6 +103,58 @@ The extension must provide a `phpunit.xml.dist` (bootstrapping `tests/phpunit/bo
 - JUnit results are always uploaded as the `phpunit-results` artifact.
 - Docker logs are collected and uploaded as the `logs.tgz` artifact if the workflow fails.
 
+## CiviCRM Extension Upgrade Test Workflow
+
+This reusable GitHub Actions workflow tests that an extension can be upgraded from an older release without losing or changing data. It sets up a WordPress + CiviCRM environment with the **old** version installed, then hands over to a repo-specific script that seeds the old version with data, replaces it with the commit under test, upgrades and checks the result.
+
+### 📂 File Location
+
+```
+.github/workflows/civicrm-extension-upgrade-tests.yml
+```
+
+### 🔧 Usage
+
+Add a workflow such as `.github/workflows/upgrade-tests.yml`:
+
+```yaml
+name: Upgrade tests
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  upgrade:
+    uses: agileware/ci-workflows/.github/workflows/civicrm-extension-upgrade-tests.yml@main
+    secrets:
+      DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    with:
+      FROM_REF: 1.3.2
+    # Optional
+    #   EXTENSION_NAME: my_custom_extension
+    #   UPGRADE_SCRIPT: tests/upgrade/ci-upgrade-test.sh
+```
+
+### ⚙️ Inputs
+
+- `FROM_REF` — **required.** Git tag, branch or commit of the old version to upgrade from. It is checked out and mounted where the extension is installed.
+- `EXTENSION_NAME` — the extension's key and the folder it is mounted under. Defaults to the calling repository's name.
+- `UPGRADE_SCRIPT` — path (relative to the repo root) of the script that does the test. Defaults to `tests/upgrade/ci-upgrade-test.sh`.
+
+### 🔐 Required Secrets
+
+- `DOCKERHUB_USER`
+- `DOCKERHUB_TOKEN`
+
+### 🧠 Notes
+
+- The script is run with `bash`, inside the WordPress container as `www-data`, from the version being tested (which is mounted read-only at `NEW_VERSION_DIR`). It is given three environment variables: `EXTENSION_KEY`, `EXTENSION_DIR` (where the extension is installed from, holding the **old** version) and `NEW_VERSION_DIR`.
+- The script must `cd` into `EXTENSION_DIR` (or anywhere inside the WordPress tree) before calling `cv`, because `NEW_VERSION_DIR` is outside the site. It should install the old version (`cv ext:install`), seed it, replace the contents of `EXTENSION_DIR` with `NEW_VERSION_DIR`, run `cv ext:upgrade-db`, check the result and exit non-zero if anything is wrong. The folder is writable by `www-data` for that purpose.
+- Pick `FROM_REF` as the last release that the upgrade must support, not "the latest tag": the seed data is written for a specific version.
+- Docker logs are collected and uploaded as the `logs.tgz` artifact if the workflow fails.
+
 ## Playwright Frontend Testing Workflow
 
 This reusable GitHub Actions workflow sets up a WordPress + CiviCRM environment, enables the extension under test, and runs its Playwright end-to-end test suite.
@@ -136,6 +189,7 @@ jobs:
     #   EXTENSION_KEY: my_custom_extension
     #   PLAYWRIGHT_DIR: tests/playwright
     #   SETUP_SCRIPT: tests/playwright/setup.sh
+    #   WP_THEME: twentytwentyfive
     #   NODE_VERSION: '20'
 ```
 
@@ -159,6 +213,7 @@ The same workflow tests a WordPress plugin by setting `COMPONENT_TYPE: plugin`. 
 - `EXTENSION_KEY` — CiviCRM extension key used to enable it via `cv ext:enable`. Defaults to `EXTENSION_NAME`. Ignored when `COMPONENT_TYPE` is `plugin`.
 - `PLAYWRIGHT_DIR` — directory (relative to the repo root) containing `package.json` and `playwright.config.ts`. Defaults to `tests/playwright`.
 - `SETUP_SCRIPT` — optional path (relative to the repo root) to a repo-specific shell script that runs after WordPress/CiviCRM/the component are up, before the Playwright tests. Use it to create test users/roles and seed data. Runs as `www-data` with its working directory set to the component's folder inside the WordPress container, so it can call `wp` and `cv` directly.
+- `WP_THEME` — wordpress.org slug of the theme to install and activate. Defaults to `astra`. Set it when the tests are written against another theme (for example `twentytwentyfive`).
 - `NODE_VERSION` — Node.js version to run Playwright with. Defaults to `20`.
 - `PRE_ACTIVATE_SCRIPT` — optional path (relative to the repo root) to a repo-specific shell script that runs after WordPress and CiviCRM are installed but *before* the component is activated or enabled. Use it to install plugins the component depends on: since WordPress 6.5, `wp plugin activate` refuses a plugin whose `Requires plugins:` are not active. Runs as `www-data` in the component's folder, like `SETUP_SCRIPT`, and receives the `GRAVITYFORMS_LICENSE_KEY` secret (if passed) as an environment variable.
 
@@ -173,7 +228,7 @@ Optional:
 
 ### 🧠 Notes
 
-- The Astra theme is installed and activated, and WordPress permalinks are set to `/%postname%/`, so that CiviCRM's clean URLs (e.g. `/civicrm/dashboard`) resolve as tests expect.
+- The theme named by `WP_THEME` (Astra by default) is installed and activated, and WordPress permalinks are set to `/%postname%/`, so that CiviCRM's clean URLs (e.g. `/civicrm/dashboard`) resolve as tests expect.
 - A CiviCRM WordPress base page (slug `civicrm`) is created and set as the `wpBasePage` setting before rewrite rules are flushed, so CiviCRM's own rewrite rule is included.
 - Tests run via `npx playwright test` from `PLAYWRIGHT_DIR`, with `BASE_URL`, `WP_ADMIN_USER`, `WP_ADMIN_PASS` and `CIVI_EXEC_PREFIX` (a ready-to-use `docker exec` prefix for running `wp`/`cv` inside the extension folder) available as environment variables.
 - The Playwright HTML report is always uploaded as the `playwright-report` artifact; on failure, screenshots/traces are also uploaded as the `playwright-test-results` artifact.
