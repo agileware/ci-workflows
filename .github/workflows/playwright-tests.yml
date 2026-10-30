@@ -276,6 +276,14 @@ jobs:
         working-directory: ${{ inputs.PLAYWRIGHT_DIR }}
         run: npx playwright install --with-deps
 
+      - name: Let the container user write to the checkout
+        run: |
+          # The checkout is bind mounted into the container where the extension lives, and Docker
+          # keeps the runner's ownership of it, so the www-data user the setup script and the
+          # test helpers run as cannot create files there. Setup scripts typically write what
+          # the tests read (for example generated fixture files under tests/), so open it up.
+          chmod -R a+rwX .
+
       - name: Run repo-specific test environment setup
         if: ${{ inputs.SETUP_SCRIPT != '' }}
         run: |
