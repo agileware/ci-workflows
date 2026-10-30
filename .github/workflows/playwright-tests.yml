@@ -37,6 +37,15 @@ on:
         required: false
         default: ''
         type: string
+      WP_THEME:
+        description: >
+          WordPress theme (a wordpress.org slug) to install and activate before the tests run.
+          Pinned rather than left to whichever theme WordPress core ships as its default, so a
+          WordPress release cannot change the rendered markup under the tests. Defaults to
+          'astra' so existing callers are unaffected.
+        required: false
+        default: 'astra'
+        type: string
       NODE_VERSION:
         description: 'Node.js version to run Playwright with'
         required: false
@@ -166,13 +175,13 @@ jobs:
           docker exec wordpress bash -c "echo 'memory_limit = 512M' > /usr/local/etc/php/conf.d/zz-memory-limit.ini"
           docker exec wordpress apache2ctl graceful 2>/dev/null || true
 
-      - name: Install and activate the Astra theme
+      - name: Install and activate the WordPress theme
         run: |
-          # Pin a specific, known theme rather than relying on whichever
-          # theme WordPress core ships as its current default - a future
-          # WordPress release changing that default would otherwise change
+          # Pin a specific, known theme (WP_THEME, Astra unless the caller says otherwise)
+          # rather than relying on whichever theme WordPress core ships as its current
+          # default - a future WordPress release changing that default would otherwise change
           # the rendered markup out from under these tests with no warning.
-          docker exec -u www-data wordpress wp theme install astra --activate
+          docker exec -u www-data wordpress wp theme install "${{ inputs.WP_THEME }}" --activate
 
       - name: Configure WordPress permalinks
         run: |
