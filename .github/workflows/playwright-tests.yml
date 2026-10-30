@@ -289,6 +289,14 @@ jobs:
         run: |
           docker exec -u www-data -w ${{ env.COMPONENT_DIR }} wordpress bash "${{ inputs.SETUP_SCRIPT }}"
 
+      - name: Let the runner use what the setup script created
+        if: ${{ inputs.SETUP_SCRIPT != '' }}
+        run: |
+          # The setup script ran as www-data, so what it created in the checkout (generated fixture
+          # files and their folders) belongs to www-data, and Playwright, which runs as the
+          # runner's user, could not add to those folders (for example its saved login sessions).
+          sudo chmod -R a+rwX .
+
       - name: Run Playwright tests
         working-directory: ${{ inputs.PLAYWRIGHT_DIR }}
         env:
