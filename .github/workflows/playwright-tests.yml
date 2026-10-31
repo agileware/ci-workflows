@@ -276,10 +276,26 @@ jobs:
         working-directory: ${{ inputs.PLAYWRIGHT_DIR }}
         run: npx playwright install --with-deps
 
+      - name: Let the container user write to the checkout
+        run: |
+          # The checkout is bind mounted into the container where the extension lives, and Docker
+          # keeps the runner's ownership of it, so the www-data user the setup script and the
+          # test helpers run as cannot create files there. Setup scripts typically write what
+          # the tests read (for example generated fixture files under tests/), so open it up.
+          chmod -R a+rwX .
+
       - name: Run repo-specific test environment setup
         if: ${{ inputs.SETUP_SCRIPT != '' }}
         run: |
           docker exec -u www-data -w ${{ env.COMPONENT_DIR }} wordpress bash "${{ inputs.SETUP_SCRIPT }}"
+
+      - name: Let the runner use what the setup script created
+        if: ${{ inputs.SETUP_SCRIPT != '' }}
+        run: |
+          # The setup script ran as www-data, so what it created in the checkout (generated fixture
+          # files and their folders) belongs to www-data, and Playwright, which runs as the
+          # runner's user, could not add to those folders (for example its saved login sessions).
+          sudo chmod -R a+rwX .
 
       - name: Run Playwright tests
         working-directory: ${{ inputs.PLAYWRIGHT_DIR }}
