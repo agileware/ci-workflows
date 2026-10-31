@@ -138,6 +138,18 @@ jobs:
           docker exec wordpress docker-php-ext-install pdo_mysql
           docker exec wordpress apache2ctl graceful 2>/dev/null || true
 
+      - name: Add empty placeholders for CiviCRM test data files
+        run: |
+          # Civi\Test\Data::populate() runs whenever a headless test starts and reads
+          # sql/test_data.mysql and sql/test_data_second_domain.mysql from the CiviCRM
+          # install. A packaged CiviCRM release does not ship them, so every run logs a PHP
+          # warning for each missing file. An empty file is loaded as an empty query, which is
+          # what already happens today, so this only silences the warning. Files that exist
+          # are left alone.
+          for f in test_data.mysql test_data_second_domain.mysql; do
+            docker exec wordpress bash -c "test -f wp-content/plugins/civicrm/civicrm/sql/$f || touch wp-content/plugins/civicrm/civicrm/sql/$f"
+          done
+
       - name: Create CiviCRM headless test database
         run: |
           # Civi\Test (used by HeadlessInterface tests, which reinstall/wipe
