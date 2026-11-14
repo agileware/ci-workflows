@@ -211,6 +211,11 @@ jobs:
           # created explicitly here so both component types start from the same state.
           docker exec wordpress mkdir -p wp-content/uploads/civicrm
           docker exec wordpress chown www-data wp-content/ wp-content/uploads wp-content/uploads/civicrm
+          # The same bind mount makes Docker create wp-content/uploads/civicrm/ext as root, so a
+          # setup script running as www-data could not add a second extension beside the one under
+          # test (for example a test-support extension): "Permission denied". Open that folder to the
+          # web user too. A plugin repo has no such folder yet, hence the check.
+          docker exec wordpress bash -c 'if [ -d wp-content/uploads/civicrm/ext ]; then chown www-data wp-content/uploads/civicrm/ext; fi'
           # -f because core:install PROMPTS when a civicrm.settings.php already exists, and a
           # prompt with no TTY takes its default - abort - and fails the run. The container is
           # rebuilt from the image every run, so overwriting a stale settings file is exactly
