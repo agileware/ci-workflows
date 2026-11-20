@@ -16,6 +16,14 @@ on:
         required: false
         default: ''
         type: string
+      COVERAGE:
+        description: >
+          Measure line coverage with pcov. Writes a summary to the job page and uploads the HTML and
+          Clover reports as the phpunit-coverage artifact. The extension's phpunit.xml.dist decides which
+          files are measured (its <coverage> element).
+        required: false
+        default: false
+        type: boolean
     secrets:
       DOCKERHUB_USER:
         required: true
@@ -194,6 +202,15 @@ jobs:
             docker exec wordpress chmod +x /usr/local/bin/phpunit9
           fi
 
+      - name: Install pcov for coverage
+        if: inputs.COVERAGE
+        run: |
+          # pcov is the lightest coverage driver. It measures only the extension folder; phpunit.xml.dist
+          # narrows that to the files it lists.
+          docker exec wordpress bash -c 'php -m | grep -qi "^pcov$" || (pecl install pcov && docker-php-ext-enable pcov)'
+          docker exec wordpress bash -c "printf 'pcov.enabled=1\npcov.directory=${{ env.EXTENSION_DIR }}\n' > /usr/local/etc/php/conf.d/zz-pcov.ini"
+          docker exec wordpress php -m | grep -i '^pcov$'
+
       - name: Run PHPUnit tests
         run: |
           # The extension's tests/phpunit/bootstrap.php shells out to `cv`
@@ -204,14 +221,46 @@ jobs:
           # dir: that's a bind mount owned by the runner's user, and www-data
           # can't write into it. For the same reason, --do-not-cache-result
           # stops PHPUnit trying (and warning) to write .phpunit.result.cache.
+          # The coverage reports go to /tmp for the same reason.
+          COVERAGE_ARGS=""
+          if [ "${{ inputs.COVERAGE }}" = "true" ]; then
+            COVERAGE_ARGS="--colors=never --coverage-text=/tmp/coverage.txt --coverage-clover=/tmp/coverage.xml --coverage-html=/tmp/coverage-html"
+          fi
           docker exec -u www-data \
             -w ${{ env.EXTENSION_DIR }} \
             -e PWD=${{ env.EXTENSION_DIR }} \
-            wordpress phpunit9 --do-not-cache-result --log-junit /tmp/phpunit-results.xml ${{ inputs.PHPUNIT_ARGS }}
+            wordpress phpunit9 --do-not-cache-result --log-junit /tmp/phpunit-results.xml $COVERAGE_ARGS ${{ inputs.PHPUNIT_ARGS }}
 
       - name: Copy PHPUnit results out of container
         if: always()
         run: docker cp wordpress:/tmp/phpunit-results.xml ./phpunit-results.xml || true
+
+      - name: Write the coverage summary
+        if: always() && inputs.COVERAGE
+        run: |
+          mkdir -p ./coverage
+          docker cp wordpress:/tmp/coverage.txt ./coverage/coverage.txt || exit 0
+          docker cp wordpress:/tmp/coverage.xml ./coverage/coverage.xml || true
+          docker cp wordpress:/tmp/coverage-html ./coverage/html || true
+          {
+            echo '### PHPUnit coverage'
+            echo
+            echo '```'
+            # The text report starts with the totals (Classes, Methods, Lines), then one block per class.
+            grep -m3 -E '^\s*(Classes|Methods|Lines):' ./coverage/coverage.txt | sed 's/^ *//'
+            echo '```'
+            echo
+            echo 'The full report is in the `phpunit-coverage` artifact (`html/index.html`).'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the coverage report
+        if: always() && inputs.COVERAGE
+        uses: actions/upload-artifact@v4
+        with:
+          name: phpunit-coverage
+          path: ./coverage
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Upload PHPUnit results
         if: always()
