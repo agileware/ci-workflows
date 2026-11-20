@@ -85,6 +85,7 @@ jobs:
     # with:
     #   EXTENSION_NAME: my_custom_extension
     #   PHPUNIT_ARGS: tests/phpunit/CRM/Foo/BarTest.php
+    #   COVERAGE: true
 ```
 
 The extension must provide a `phpunit.xml.dist` (bootstrapping `tests/phpunit/bootstrap.php`) and tests written against `Civi\Test`'s `HeadlessInterface`, per CiviCRM's [PHPUnit testing docs](https://docs.civicrm.org/dev/en/latest/testing/phpunit/).
@@ -101,6 +102,7 @@ The extension must provide a `phpunit.xml.dist` (bootstrapping `tests/phpunit/bo
 - `phpunit9` is downloaded as an official phar if the base image doesn't already provide it.
 - The headless test database is a clone of the main site database (connected to as `root`, since `Civi\Test`'s schema install needs `SUPER`), never the main site DB itself.
 - JUnit results are always uploaded as the `phpunit-results` artifact.
+- `COVERAGE: true` installs pcov, writes the line, method and class totals to the job summary, and uploads the text, Clover and HTML reports as the `phpunit-coverage` artifact. The files measured are the ones in the `<coverage>` element of the extension's `phpunit.xml.dist`. It reports only; it sets no minimum.
 - Docker logs are collected and uploaded as the `logs.tgz` artifact if the workflow fails.
 
 ## CiviCRM Extension Upgrade Test Workflow
