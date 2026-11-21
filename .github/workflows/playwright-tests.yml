@@ -70,6 +70,12 @@ on:
       GRAVITYFORMS_LICENSE_KEY:
         description: 'Gravity Forms licence key, for callers whose PRE_ACTIVATE_SCRIPT installs Gravity Forms or its add-ons.'
         required: false
+      EWAY_SANDBOX_API_KEY:
+        description: 'eWAY sandbox API key, for callers whose Playwright suite has real-sandbox cases. Without it those cases skip.'
+        required: false
+      EWAY_SANDBOX_API_PASSWORD:
+        description: 'eWAY sandbox API password, paired with EWAY_SANDBOX_API_KEY.'
+        required: false
 
 jobs:
   playwright:
@@ -309,6 +315,9 @@ jobs:
           WP_ADMIN_USER: ${{ env.WP_ADMIN_USER }}
           WP_ADMIN_PASS: ${{ env.WP_ADMIN_PASS }}
           CIVI_EXEC_PREFIX: docker exec -u www-data -w ${{ env.COMPONENT_DIR }} wordpress
+          # Optional. Empty when the caller does not pass them, which makes real-sandbox cases skip.
+          EWAY_SANDBOX_API_KEY: ${{ secrets.EWAY_SANDBOX_API_KEY }}
+          EWAY_SANDBOX_API_PASSWORD: ${{ secrets.EWAY_SANDBOX_API_PASSWORD }}
         run: npx playwright test
 
       - name: Upload Playwright report
