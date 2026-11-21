@@ -227,12 +227,13 @@ The same workflow tests a WordPress plugin by setting `COMPONENT_TYPE: plugin`. 
 Optional:
 
 - `GRAVITYFORMS_LICENSE_KEY` — for callers whose `PRE_ACTIVATE_SCRIPT` installs Gravity Forms or its add-ons, which are commercially licensed. Passed to the script as an environment variable and never placed on a command line. Pull requests from forks do not receive secrets.
+- `EWAY_SANDBOX_API_KEY` and `EWAY_SANDBOX_API_PASSWORD` — for callers whose Playwright suite has cases that talk to the real eWAY sandbox. Passed to the `npx playwright test` step as environment variables of the same names; when they are not passed the variables are empty and those cases are expected to skip. They are sandbox credentials, not live ones. A caller that does not want pull request code to read them can withhold them on that event, for example `${{ github.event_name != 'pull_request' && secrets.EWAY_SANDBOX_API_KEY || '' }}`.
 
 ### 🧠 Notes
 
 - The theme named by `WP_THEME` (Astra by default) is installed and activated, and WordPress permalinks are set to `/%postname%/`, so that CiviCRM's clean URLs (e.g. `/civicrm/dashboard`) resolve as tests expect.
 - A CiviCRM WordPress base page (slug `civicrm`) is created and set as the `wpBasePage` setting before rewrite rules are flushed, so CiviCRM's own rewrite rule is included.
-- Tests run via `npx playwright test` from `PLAYWRIGHT_DIR`, with `BASE_URL`, `WP_ADMIN_USER`, `WP_ADMIN_PASS` and `CIVI_EXEC_PREFIX` (a ready-to-use `docker exec` prefix for running `wp`/`cv` inside the extension folder) available as environment variables.
+- Tests run via `npx playwright test` from `PLAYWRIGHT_DIR`, with `BASE_URL`, `WP_ADMIN_USER`, `WP_ADMIN_PASS` and `CIVI_EXEC_PREFIX` (a ready-to-use `docker exec` prefix for running `wp`/`cv` inside the extension folder) available as environment variables. `EWAY_SANDBOX_API_KEY` and `EWAY_SANDBOX_API_PASSWORD` are also set when the caller passes those secrets.
 - The Playwright HTML report is always uploaded as the `playwright-report` artifact; on failure, screenshots/traces are also uploaded as the `playwright-test-results` artifact.
 - Docker logs are collected and uploaded as the `logs.tgz` artifact if the workflow fails.
 
