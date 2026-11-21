@@ -283,6 +283,61 @@ jobs:
 
 - The tests run inside the web container with `CI=1`, `CMS` and `BASE_URL=http://localhost`. The HTML report is uploaded as `playwright-report-<cms>`, and on failure the test results as `playwright-traces-<cms>` and the DDEV logs in the job log.
 - Building a site takes several minutes, so callers usually run this by hand and on a schedule rather than on every pull request.
+
+## Playwright Screenshots Workflow
+
+This reusable workflow builds the same throwaway WordPress and CiviCRM site as the Playwright workflow, runs a repository's own screenshot command (for example the pictures of its user guide), and opens a pull request with whatever changed in an output folder, for a person to review. It runs no tests and never changes a branch by itself. It is kept apart from `playwright-tests.yml` so that the test workflow and its callers are not affected; its site set-up steps are copied from there (same step names), so a change to one belongs in the other.
+
+### 📂 File Location
+
+```
+.github/workflows/playwright-screenshots.yml
+```
+
+### 🔧 Usage
+
+```yaml
+name: docs images
+
+on:
+  workflow_dispatch:
+
+jobs:
+  screenshots:
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: agileware/ci-workflows/.github/workflows/playwright-screenshots.yml@main
+    secrets:
+      DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USER }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    with:
+      COMMAND: npm run docs-images
+      OUTPUT_DIR: docs/images
+      SETUP_SCRIPT: tests/playwright/fixtures/setup-environment.sh
+      PR_TITLE: Update the user guide pictures
+```
+
+### ⚙️ Inputs
+
+- `COMMAND` (required) — the command that takes the screenshots, run with `bash -c` from `PLAYWRIGHT_DIR`, with `BASE_URL`, `WP_ADMIN_USER`, `WP_ADMIN_PASS` and `CIVI_EXEC_PREFIX` set as in the Playwright workflow.
+- `OUTPUT_DIR` (required) — the folder (relative to the repo root) the command writes into. Its changes become the pull request.
+- `EXTENSION_NAME`, `EXTENSION_KEY`, `PLAYWRIGHT_DIR`, `SETUP_SCRIPT`, `NODE_VERSION` — as in the Playwright workflow.
+- `WP_THEME` — defaults to `twentytwentyfive` (the Playwright workflow defaults to `astra`).
+- `PR_BASE` — the branch the pull request goes into. Defaults to the branch the workflow ran on, so running it on a release branch updates that branch.
+- `PR_TITLE` — defaults to `Update screenshots`.
+
+### 🔐 Required Secrets
+
+- `DOCKERHUB_USER`
+- `DOCKERHUB_TOKEN`
+
+### 🧠 Notes
+
+- The caller's job needs `permissions: contents: write` and `pull-requests: write`, and the organisation or repository must allow GitHub Actions to create pull requests (Settings > Actions > General).
+- When nothing changed in `OUTPUT_DIR`, no pull request is opened. The pictures are also uploaded to the run as the `screenshots` artifact.
+- A pull request opened with `GITHUB_TOKEN` does not start other workflows, so its checks run only after someone pushes to it. For a pull request of pictures only, that is usually fine.
+- The branch is `screenshots/<base>-<run id>`; delete it after merging or closing the pull request.
 ## WordPress Plugin Cut Release Workflow
 
 This reusable GitHub Actions workflow builds a filtered copy of a WordPress plugin's tree
