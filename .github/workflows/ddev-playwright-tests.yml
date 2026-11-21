@@ -1,0 +1,149 @@
+name: ddev playwright tests
+
+# Runs a repository's Playwright suite on a test site that DDEV builds inside the runner, for CMSs the Docker
+# workflow (playwright-tests.yml, WordPress only) does not cover: Drupal and Joomla. The calling repository
+# provides the script that builds the site (for example a "create-site.sh <cms> <site> <civicrm-version>" kit)
+# and the command that creates its test accounts; this workflow installs DDEV, runs them and the tests, and
+# uploads the report.
+#
+# The repository is checked out as $GITHUB_WORKSPACE/<EXTENSION_NAME>, and the site is built next to it as
+# $GITHUB_WORKSPACE/ci-<cms>, which is the layout such kits expect.
+
+on:
+  workflow_call:
+    inputs:
+      CMS:
+        description: "The CMS to build: drupal, joomla or wordpress (passed to SITE_SCRIPT and to the tests as CMS)"
+        required: true
+        type: string
+      EXTENSION_NAME:
+        description: 'Name of the extension (the folder the repository is checked out into)'
+        required: false
+        default: ${{ github.event.repository.name }}
+        type: string
+      SITE_SCRIPT:
+        description: >
+          Path (relative to the repository root) to the script that builds the DDEV site. It is run from
+          $GITHUB_WORKSPACE as "<script> <CMS> ci-<CMS> <CIVICRM_VERSION>", must create the DDEV project in
+          ./ci-<CMS>, start it, install CiviCRM and the extension, and install the Playwright browsers in the
+          web container.
+        required: true
+        type: string
+      CIVICRM_VERSION:
+        description: 'CiviCRM version passed to SITE_SCRIPT (for example 6.19, 6.19.5 or latest)'
+        required: false
+        default: 'latest'
+        type: string
+      EXTENSIONS_DIR:
+        description: >
+          Folder of the site's custom extensions, relative to the DDEV project root (for example web/CRM/extensions).
+          Empty means the layout of the Elections kit: httpdocs/CRM/extensions on WordPress, web/CRM/extensions on
+          Drupal, CRM/extensions on Joomla.
+        required: false
+        default: ''
+        type: string
+      ACCOUNTS_COMMAND:
+        description: >
+          Shell command run inside the web container before the tests, to create test accounts and seed data.
+          EXTENSION_DIR is set to the extension's folder in the container.
+        required: false
+        default: ''
+        type: string
+      PLAYWRIGHT_DIR:
+        description: 'Directory (relative to the repository root) containing package.json and playwright.config.ts'
+        required: false
+        default: 'tests/playwright'
+        type: string
+      TEST_ENV:
+        description: 'Extra environment for the tests, as space-separated NAME=value pairs (for example "CIVI_CV=jcv")'
+        required: false
+        default: ''
+        type: string
+      DDEV_VERSION:
+        description: 'DDEV version to install'
+        required: false
+        default: 'latest'
+        type: string
+
+jobs:
+  playwright:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      SITE: ci-${{ inputs.CMS }}
+      EXT: ${{ inputs.EXTENSION_NAME }}
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+        with:
+          path: ${{ inputs.EXTENSION_NAME }}
+
+      - name: Install DDEV
+        uses: ddev/github-action-setup-ddev@v1
+        with:
+          autostart: false
+          version: ${{ inputs.DDEV_VERSION }}
+
+      - name: Work out the extension's folder in the site
+        run: |
+          dir="${{ inputs.EXTENSIONS_DIR }}"
+          if [ -z "$dir" ]; then
+            case "${{ inputs.CMS }}" in
+              wordpress) dir=httpdocs/CRM/extensions ;;
+              drupal) dir=web/CRM/extensions ;;
+              joomla) dir=CRM/extensions ;;
+              *) echo "Unknown CMS ${{ inputs.CMS }}: set EXTENSIONS_DIR"; exit 1 ;;
+            esac
+          fi
+          echo "EXT_HOST=$GITHUB_WORKSPACE/$SITE/$dir/$EXT" >> "$GITHUB_ENV"
+          echo "EXT_CONTAINER=/var/www/html/$dir/$EXT" >> "$GITHUB_ENV"
+
+      - name: Build the site
+        working-directory: ${{ github.workspace }}
+        run: |
+          bash "$EXT/${{ inputs.SITE_SCRIPT }}" "${{ inputs.CMS }}" "$SITE" "${{ inputs.CIVICRM_VERSION }}"
+
+      - name: Create the test accounts
+        if: inputs.ACCOUNTS_COMMAND != ''
+        working-directory: ${{ github.workspace }}/${{ env.SITE }}
+        env:
+          ACCOUNTS_COMMAND: ${{ inputs.ACCOUNTS_COMMAND }}
+        run: |
+          # --raw: ddev exec would otherwise run the command through a shell of its own first, which expands
+          # $EXTENSION_DIR before env sets it.
+          ddev exec --raw env EXTENSION_DIR="$EXT_CONTAINER" bash -c "$ACCOUNTS_COMMAND"
+
+      - name: Run the Playwright tests
+        working-directory: ${{ github.workspace }}/${{ env.SITE }}
+        env:
+          TEST_ENV: ${{ inputs.TEST_ENV }}
+        run: |
+          # shellcheck disable=SC2086
+          ddev exec --raw env CI=1 CMS="${{ inputs.CMS }}" BASE_URL=http://localhost $TEST_ENV \
+            bash -c "cd '$EXT_CONTAINER/${{ inputs.PLAYWRIGHT_DIR }}' && npx playwright test"
+
+      - name: Upload the Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-${{ inputs.CMS }}
+          path: ${{ env.EXT_HOST }}/${{ inputs.PLAYWRIGHT_DIR }}/playwright-report
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces-${{ inputs.CMS }}
+          path: ${{ env.EXT_HOST }}/${{ inputs.PLAYWRIGHT_DIR }}/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: DDEV logs on failure
+        if: failure()
+        working-directory: ${{ github.workspace }}/${{ env.SITE }}
+        run: |
+          ddev logs -s web --tail 300 || true
+          ddev logs -s db --tail 100 || true

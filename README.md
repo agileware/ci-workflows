@@ -237,6 +237,52 @@ Optional:
 - The Playwright HTML report is always uploaded as the `playwright-report` artifact; on failure, screenshots/traces are also uploaded as the `playwright-test-results` artifact.
 - Docker logs are collected and uploaded as the `logs.tgz` artifact if the workflow fails.
 
+
+## DDEV Playwright Testing Workflow (Drupal and Joomla)
+
+This reusable workflow runs a repository's Playwright suite on a test site that DDEV builds inside the runner. It is for the CMSs the Docker workflow above does not build (Drupal and Joomla); it also works for WordPress. The calling repository provides the script that builds the site and the command that creates its test accounts. No secrets are needed: everything is downloaded from public sources.
+
+### 📂 File Location
+
+```
+.github/workflows/ddev-playwright-tests.yml
+```
+
+### 🔧 Usage
+
+```yaml
+name: frontend tests (Drupal and Joomla)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 18 * * 1'
+
+jobs:
+  drupal:
+    uses: agileware/ci-workflows/.github/workflows/ddev-playwright-tests.yml@main
+    with:
+      CMS: drupal
+      SITE_SCRIPT: developer/ddev-kit/create-site.sh
+      CIVICRM_VERSION: '6.19'
+      ACCOUNTS_COMMAND: 'cd /var/www/html && bash "$EXTENSION_DIR/tests/playwright/fixtures/setup-accounts-drupal.sh"'
+```
+
+### ⚙️ Inputs
+
+- `CMS` (required) — `drupal`, `joomla` or `wordpress`. Passed to `SITE_SCRIPT` and to the tests as `CMS`.
+- `SITE_SCRIPT` (required) — path (relative to the repo root) to the script that builds the site. It is run from `$GITHUB_WORKSPACE` as `<script> <CMS> ci-<CMS> <CIVICRM_VERSION>` with the repo checked out as `$GITHUB_WORKSPACE/<EXTENSION_NAME>`, and must create and start the DDEV project in `./ci-<CMS>`, install CiviCRM and the extension, and install the Playwright browsers in the web container.
+- `CIVICRM_VERSION` — passed to `SITE_SCRIPT`. Defaults to `latest`.
+- `EXTENSIONS_DIR` — the site's custom extensions folder, relative to the DDEV project root. Empty means `httpdocs/CRM/extensions` (WordPress), `web/CRM/extensions` (Drupal) or `CRM/extensions` (Joomla).
+- `ACCOUNTS_COMMAND` — a shell command run inside the web container before the tests, with `EXTENSION_DIR` set to the extension's folder there.
+- `PLAYWRIGHT_DIR` — directory with `package.json` and `playwright.config.ts`. Defaults to `tests/playwright`.
+- `TEST_ENV` — extra environment for the tests, as `NAME=value` pairs separated by spaces (for example `CIVI_CV=jcv`).
+- `DDEV_VERSION` — defaults to `latest`.
+
+### 🧠 Notes
+
+- The tests run inside the web container with `CI=1`, `CMS` and `BASE_URL=http://localhost`. The HTML report is uploaded as `playwright-report-<cms>`, and on failure the test results as `playwright-traces-<cms>` and the DDEV logs in the job log.
+- Building a site takes several minutes, so callers usually run this by hand and on a schedule rather than on every pull request.
 ## WordPress Plugin Cut Release Workflow
 
 This reusable GitHub Actions workflow builds a filtered copy of a WordPress plugin's tree
