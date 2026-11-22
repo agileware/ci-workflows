@@ -3,6 +3,14 @@ name: CiviCRM extension upgrade test
 on:
   workflow_call:
     inputs:
+      CIVICRM_VERSION:
+        description: >
+          CiviCRM version to test against, e.g. '6.16.5'. The WordPress zip with that number is downloaded from
+          download.civicrm.org and replaces the CiviCRM plugin in the image before CiviCRM is installed. Leave empty
+          (the default) to use the CiviCRM version already in the image, as before.
+        required: false
+        default: ''
+        type: string
       EXTENSION_NAME:
         description: 'Name of the CiviCRM extension (also the folder it is mounted under, and its key)'
         required: false
@@ -144,6 +152,20 @@ jobs:
           curl -Ls https://download.civicrm.org/cv/cv.phar -o /tmp/cv
           docker cp /tmp/cv wordpress:/usr/local/bin/cv
           docker exec wordpress chmod +x /usr/local/bin/cv
+
+      - name: Use a specific CiviCRM version
+        if: inputs.CIVICRM_VERSION != ''
+        env:
+          CIVICRM_VERSION: ${{ inputs.CIVICRM_VERSION }}
+        run: |
+          curl -sSfL "https://download.civicrm.org/civicrm-${CIVICRM_VERSION}-wordpress.zip" -o /tmp/civicrm.zip
+          docker cp /tmp/civicrm.zip wordpress:/tmp/civicrm.zip
+          docker exec wordpress rm -rf wp-content/plugins/civicrm
+          docker exec wordpress chown www-data wp-content/plugins
+          docker exec -u www-data wordpress wp plugin install /tmp/civicrm.zip
+          INSTALLED=$(docker exec -u www-data wordpress wp plugin get civicrm --field=version)
+          echo "CiviCRM plugin version: $INSTALLED"
+          test "$INSTALLED" = "$CIVICRM_VERSION"
 
       - name: Install civicrm
         run: |
