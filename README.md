@@ -98,6 +98,7 @@ The extension must provide a `phpunit.xml.dist` (bootstrapping `tests/phpunit/bo
 ### 🧠 Notes
 
 - If `EXTENSION_NAME` is not provided, the workflow defaults to the name of the calling repository.
+- `CIVICRM_VERSION` (optional) tests against a specific CiviCRM version, for example `6.16.5`. The WordPress zip with that number is downloaded from `download.civicrm.org` and replaces the CiviCRM plugin in the image before CiviCRM is installed; the job fails if the installed version is not the one asked for. Empty (the default) keeps the version in the image.
 - `PHPUNIT_ARGS` is passed straight through to `phpunit9`, e.g. to target a single test file. It defaults to running the full suite from the extension's `phpunit.xml.dist`.
 - `phpunit9` is downloaded as an official phar if the base image doesn't already provide it.
 - The headless test database is a clone of the main site database (connected to as `root`, since `Civi\Test`'s schema install needs `SUPER`), never the main site DB itself.
@@ -144,6 +145,7 @@ jobs:
 - `FROM_REF` — **required.** Git tag, branch or commit of the old version to upgrade from. It is checked out and mounted where the extension is installed.
 - `EXTENSION_NAME` — the extension's key and the folder it is mounted under. Defaults to the calling repository's name.
 - `UPGRADE_SCRIPT` — path (relative to the repo root) of the script that does the test. Defaults to `tests/upgrade/ci-upgrade-test.sh`.
+- `CIVICRM_VERSION`: optional CiviCRM version to test against, for example `6.16.5`. The WordPress zip with that number is downloaded from `download.civicrm.org` and replaces the CiviCRM plugin in the image before CiviCRM is installed; the job fails if the installed version is not the one asked for. Empty (the default) keeps the CiviCRM version that is in the image. Use it to test the lowest CiviCRM version an extension declares.
 
 ### 🔐 Required Secrets
 
@@ -217,6 +219,7 @@ The same workflow tests a WordPress plugin by setting `COMPONENT_TYPE: plugin`. 
 - `SETUP_SCRIPT` — optional path (relative to the repo root) to a repo-specific shell script that runs after WordPress/CiviCRM/the component are up, before the Playwright tests. Use it to create test users/roles and seed data. Runs as `www-data` with its working directory set to the component's folder inside the WordPress container, so it can call `wp` and `cv` directly. For an extension, the folder CiviCRM loads extensions from (`wp-content/uploads/civicrm/ext`) is owned by `www-data`, so the script can install a helper extension (a test-support extension, say) beside the one under test.
 - `WP_THEME` — wordpress.org slug of the theme to install and activate. Defaults to `astra`. Set it when the tests are written against another theme (for example `twentytwentyfive`).
 - `NODE_VERSION` — Node.js version to run Playwright with. Defaults to `20`.
+- `CIVICRM_VERSION`: optional CiviCRM version to test against, for example `6.16.5`. The WordPress zip with that number is downloaded from `download.civicrm.org` and replaces the CiviCRM plugin in the image before CiviCRM is installed; the job fails if the installed version is not the one asked for. Empty (the default) keeps the CiviCRM version that is in the image. Use it to test the lowest CiviCRM version an extension declares.
 - `PRE_ACTIVATE_SCRIPT` — optional path (relative to the repo root) to a repo-specific shell script that runs after WordPress and CiviCRM are installed but *before* the component is activated or enabled. Use it to install plugins the component depends on: since WordPress 6.5, `wp plugin activate` refuses a plugin whose `Requires plugins:` are not active. Runs as `www-data` in the component's folder, like `SETUP_SCRIPT`, and receives the `GRAVITYFORMS_LICENSE_KEY` secret (if passed) as an environment variable.
 
 ### 🔐 Required Secrets
